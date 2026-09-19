@@ -136,7 +136,38 @@ function useCollapsed(key: string, defaultCollapsed = false): [boolean, () => vo
 /* VSCode 风格可拖拽分割：展开区的 flex-grow 权重持久化，折叠区不占空间 */
 const LS_LP_SIZES = "pi-web-ui:lp-sizes";
 type LpWeights = { projects: number; convs: number; sessions: number };
+/** 一个区在布局里的可见/折叠状态（只描述布局，与是哪个区无关，便于单测）。 */
+export type LpSectionMeta = { key: keyof LpWeights; visible: boolean; collapsed: boolean };
+
+/** 选「兜底填充区」：展开区一律按内容封顶（styles.css 的 max-height:fit-content），
+ *  内容装不满自己那份的区不再硬占高度，腾出的高度让给还能长的区；
+ *  若所有展开区都到顶，容器底部会留洞 —— 让唯一一个区不封顶来吸收这段高度。
+ *  取「最后一个展开区」而非「内容最多的」：位置稳定，列表长短变化时不会来回跳。 */
+export function pickFillSection(meta: LpSectionMeta[]): keyof LpWeights | null {
+	const expanded = meta.filter((s) => s.visible && !s.collapsed);
+	return expanded.length > 0 ? expanded[expanded.length - 1].key : null;
+}
 const DEFAULT_LP_WEIGHTS: LpWeights = { projects: 1, convs: 1, sessions: 1 };
+
+/** 需要「不封顶」（styles.css 的 .lp-section-fill）的区：
+ *  1. 最后一个展开区 —— 若所有展开区都封顶，容器底部会留洞，由它吸收剩余高度；
+ *  2. 被用户显式拖大过的区（权重 > 默认值）—— 权重变大等于用户明确要求它高于内容，
+ *     此时再按内容封顶会让「把小区拖大」变成无效操作（拖动只改权重、高度不动）。
+ *     双击分割条会重置回默认权重，也就恢复纯自动分配。 */
+export function pickUncappedSections(
+	meta: LpSectionMeta[],
+	weights: Partial<Record<keyof LpWeights, number>>,
+	defaults: Partial<Record<keyof LpWeights, number>> = DEFAULT_LP_WEIGHTS,
+): Set<keyof LpWeights> {
+	const out = new Set<keyof LpWeights>();
+	const fill = pickFillSection(meta);
+	if (fill) out.add(fill);
+	for (const s of meta) {
+		if (!s.visible || s.collapsed) continue;
+		if ((weights[s.key] ?? 1) > (defaults[s.key] ?? 1) + 1e-6) out.add(s.key);
+	}
+	return out;
+}
 /** 折叠区仅留标题高度（与 styles.css 的 .lp-section.collapsed 对齐）。 */
 const LP_COLLAPSED_HEADER_PX = 32;
 /** 展开区最小高度（≈3 行，与 styles.css 的 .lp-section min-height 对齐）。 */
@@ -637,6 +668,7 @@ export const LeftPanel = memo(function LeftPanel({
 		{ key: "convs" as const, visible: runningAll.length > 0, collapsed: collapseConvs },
 		{ key: "sessions" as const, visible: true, collapsed: collapseSessions },
 	].filter((s) => s.visible);
+	const uncapped = pickUncappedSections(visibleMetaForFlex, weights);
 	const expandedForFlex = visibleMetaForFlex.filter((s) => !s.collapsed);
 	const totalWeightForFlex = expandedForFlex.reduce((sum, k) => sum + (weights[k.key] ?? 1), 0) || 1;
 	const effFlex = (k: keyof LpWeights) => {
@@ -654,7 +686,7 @@ export const LeftPanel = memo(function LeftPanel({
 			)}
 			{/* Recent projects — collapsible, flex share */}
 			<div
-				className={`lp-section panel-projects ${collapseProjects || projects.length === 0 ? "collapsed" : ""}`}
+				className={`lp-section panel-projects ${collapseProjects || projects.length === 0 ? "collapsed" : ""} ${uncapped.has("projects") ? "lp-section-fill" : ""}`}
 				style={projects.length > 0 && !collapseProjects ? { flex: `${effFlex("projects")} 1 0px` } : undefined}
 			>
 				{sectionHeader(
@@ -719,7 +751,7 @@ export const LeftPanel = memo(function LeftPanel({
 			{/* Running conversations — collapsible, flex share. Hidden when empty to keep old layout expectations. */}
 			{runningAll.length > 0 && (
 				<div
-					className={`lp-section lp-section-convs panel-convs ${collapseConvs ? "collapsed" : ""}`}
+					className={`lp-section lp-section-convs panel-convs ${collapseConvs ? "collapsed" : ""} ${uncapped.has("convs") ? "lp-section-fill" : ""}`}
 					style={!collapseConvs ? { flex: `${effFlex("convs")} 1 0px` } : undefined}
 					onContextMenu={(e) => openSessionMenu(e, { id: "", kind: "section", label: t("runningConversations") })}
 				>
@@ -986,24 +1018,10 @@ export const LeftPanel = memo(function LeftPanel({
 
 			{/* History sessions — collapsible, flex share, takes remaining */}
 			<div
-				className={`lp-section lp-section-sessions panel-sessions ${collapseSessions ? "collapsed" : ""}`}
+				className={`lp-section lp-section-sessions panel-sessions ${collapseSessions ? "collapsed" : ""} ${uncapped.has("sessions") ? "lp-section-fill" : ""}`}
 				style={!collapseSessions ? { flex: `${effFlex("sessions")} 1 0px` } : undefined}
 			>
-				{sectionHeader(
-					t("historySessions"),
-					collapseSessions,
-					toggleSessions,
-					sessions.length,
-					<button
-						type="button"
-						className="lp-section-action lp-new-chat-action"
-						title={t("newChatTip")}
-						aria-label={t("newChat")}
-						onClick={() => panelSend({ type: "new_chat" })}
-					>
-						<FiPlus />
-					</button>,
-				)}
+				{sectionHeader(t("historySessions"), collapseSessions, toggleSessions, sessions.length)}
 				{!collapseSessions && (
 					<div className="lp-section-body sessions-scroll">
 						{sessions.length === 0 && <div className="panel-empty">{t("noHistory")}</div>}
@@ -1086,6 +1104,18 @@ export const LeftPanel = memo(function LeftPanel({
 					</div>
 				)}
 			</div>
+			{/* 新对话：常驻左下角的整宽按钮，钉在滚动区之外（任何尺寸/抽屉下都可见）。
+				保留 .lp-new-chat-action 类名：i18n 端到端测试按它取 aria-label。 */}
+			<button
+				type="button"
+				className="lp-new-chat-action"
+				title={t("newChatTip")}
+				aria-label={t("newChat")}
+				onClick={() => panelSend({ type: "new_chat" })}
+			>
+				<FiPlus />
+				<span>{t("newChat")}</span>
+			</button>
 			<ProjectPicker
 				open={projectPickerOpen}
 				currentCwd={currentCwd}

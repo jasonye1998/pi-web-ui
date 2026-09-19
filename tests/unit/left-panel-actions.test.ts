@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
-import { LeftPanel } from "../../web/src/components/LeftPanel.js";
+import { LeftPanel, pickFillSection, pickUncappedSections } from "../../web/src/components/LeftPanel.js";
 import { joinProjectPath, isValidProjectName, parentOf, MACHINE_ROOT } from "../../web/src/components/ProjectPicker.js";
 import { LanguageProvider } from "../../web/src/i18n.js";
 import { resetAppGlobals, setAppGlobals } from "../../web/src/app-globals.js";
@@ -95,7 +95,7 @@ describe("LeftPanel 标题栏操作与项目管理", () => {
 		expect(container.querySelector(".projects-scroll")).toBeNull();
 	});
 
-	it("“历史对话”标题栏渲染新对话加号按钮，点击后发送 new_chat 且不影响折叠状态", () => {
+	it("左栏底部常驻新对话按钮，点击后发送 new_chat 且不影响折叠状态", () => {
 		setAppGlobals({ cwd: "/test", ready: true, status: "open", workspaceRoots: [] });
 		const { container, sent } = mountLeftPanel();
 
@@ -103,11 +103,29 @@ describe("LeftPanel 标题栏操作与项目管理", () => {
 		expect(newChatBtn).toBeTruthy();
 		expect(newChatBtn?.title).toBeTruthy();
 		expect(newChatBtn?.getAttribute("aria-label")).toBeTruthy();
+		expect(newChatBtn?.textContent).toContain("新对话");
+
+		// 位于滚动区之外：不在任何一个 .lp-section 里面（否则会被列表挤走/随列表滚动）
+		expect(newChatBtn?.closest(".lp-section")).toBeNull();
+		// 是面板的直接子节点，且排在所有区之后（底部）
+		const panel = container.querySelector(".lp-panel")!;
+		const sections = Array.from(panel.querySelectorAll(":scope > .lp-section"));
+		expect(sections.length).toBeGreaterThan(0);
+		expect(newChatBtn?.parentElement).toBe(panel);
+		expect(
+			sections[sections.length - 1]!.compareDocumentPosition(newChatBtn!) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+
+		// 旧的标题栏加号已移除：任何 .lp-section-header 内都不应再有新对话入口
+		const headerBtns = Array.from(
+			container.querySelectorAll<HTMLButtonElement>(".lp-section-header .lp-new-chat-action"),
+		);
+		expect(headerBtns).toHaveLength(0);
 
 		const sessionsSection = container.querySelector(".panel-sessions");
 		const wasCollapsed = sessionsSection?.classList.contains("collapsed");
 
-		// 点击加号
+		// 点击按钮
 		sent.length = 0;
 		act(() => newChatBtn!.click());
 		expect(sent).toEqual([{ type: "new_chat" }]);
@@ -243,6 +261,92 @@ describe("LeftPanel 标题栏操作与项目管理", () => {
 		expect(parentOf("C:/")).toBe(MACHINE_ROOT);
 		expect(parentOf("C:/Users")).toBe("C:/");
 		expect(parentOf("C:/Users/test")).toBe("C:/Users");
+	});
+});
+
+describe("左栏区高度自适应（pickFillSection / pickUncappedSections）", () => {
+	const m = (key: "projects" | "convs" | "sessions", visible: boolean, collapsed: boolean) => ({
+		key,
+		visible,
+		collapsed,
+	});
+
+	it("pickFillSection 取最后一个可见且展开的区", () => {
+		expect(pickFillSection([m("projects", true, false), m("sessions", true, false)])).toBe("sessions");
+		expect(pickFillSection([m("projects", true, false), m("convs", true, false), m("sessions", true, false)])).toBe(
+			"sessions",
+		);
+	});
+
+	it("pickFillSection 忽略不可见与折叠的区，全折叠/全不可见时返回 null", () => {
+		// 末尾的 sessions 折叠 → 兜底落到 convs
+		expect(pickFillSection([m("projects", true, false), m("convs", true, false), m("sessions", true, true)])).toBe(
+			"convs",
+		);
+		// 末尾的 sessions 不可见（无历史对话）→ 兜底落到 convs
+		expect(pickFillSection([m("projects", true, false), m("convs", true, false), m("sessions", false, false)])).toBe(
+			"convs",
+		);
+		// 只剩一个展开区时，它就是兜底区
+		expect(pickFillSection([m("projects", true, true), m("convs", true, false), m("sessions", true, true)])).toBe(
+			"convs",
+		);
+		expect(pickFillSection([m("projects", true, true), m("sessions", true, true)])).toBeNull();
+		expect(pickFillSection([])).toBeNull();
+	});
+
+	it("pickUncappedSections 恒包含最后一个展开区，并额外放行被拖大过的区", () => {
+		const meta = [m("projects", true, false), m("convs", true, false), m("sessions", true, false)];
+		// 默认权重：只有兜底区（sessions）不封顶
+		expect([...pickUncappedSections(meta, { projects: 1, convs: 1, sessions: 1 })].sort()).toEqual(["sessions"]);
+		// projects 被拖大（权重 > 默认 1）→ 它也不再封顶，否则拖大变成无效操作
+		expect([...pickUncappedSections(meta, { projects: 2.5, convs: 1, sessions: 1 })].sort()).toEqual([
+			"projects",
+			"sessions",
+		]);
+		// 被拖小（权重 < 默认）不算「用户要求变高」，仍按内容封顶
+		expect([...pickUncappedSections(meta, { projects: 0.5, convs: 1, sessions: 1 })].sort()).toEqual(["sessions"]);
+		// 折叠/不可见的区即使权重大也不参与
+		expect(
+			[
+				...pickUncappedSections([m("projects", true, true), m("sessions", true, false)], { projects: 9, sessions: 1 }),
+			].sort(),
+		).toEqual(["sessions"]);
+	});
+
+	it("lp-section-fill 只落在兜底区上，随折叠状态在三个区之间迁移", () => {
+		setAppGlobals({ cwd: "/test", ready: true, status: "open", workspaceRoots: [] });
+		const filled = (container: HTMLElement) =>
+			Array.from(container.querySelectorAll<HTMLElement>(".lp-panel > .lp-section"))
+				.filter((el) => el.classList.contains("lp-section-fill"))
+				.map((el) =>
+					el.classList.contains("panel-projects")
+						? "projects"
+						: el.classList.contains("panel-convs")
+							? "convs"
+							: "sessions",
+				);
+
+		// 三个区都展开：只有最后的 sessions 不封顶
+		const a = mountLeftPanel({
+			conversations: [{ id: "c1", title: "run", cwd: "/test", messageCount: 1, isStreaming: false, isSubagent: false }],
+			projects: [{ path: "/test/p", name: "p", lastUsed: 1 }],
+		});
+		expect(filled(a.container)).toEqual(["sessions"]);
+		act(() => root!.unmount());
+		root = null;
+		document.body.innerHTML = "";
+
+		// sessions 折叠 → 兜底上移到 convs
+		const b = mountLeftPanel({
+			conversations: [{ id: "c1", title: "run", cwd: "/test", messageCount: 1, isStreaming: false, isSubagent: false }],
+			projects: [{ path: "/test/p", name: "p", lastUsed: 1 }],
+			uiLeftSessions: [],
+		});
+		const sessionsSection = b.container.querySelector<HTMLElement>(".panel-sessions")!;
+		act(() => b.container.querySelector<HTMLButtonElement>(".panel-sessions .lp-section-chevron")!.click());
+		expect(sessionsSection.classList.contains("collapsed")).toBe(true);
+		expect(filled(b.container)).toEqual(["convs"]);
 	});
 });
 

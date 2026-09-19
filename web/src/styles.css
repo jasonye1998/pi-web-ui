@@ -523,11 +523,22 @@ body.panel-resizing {
 .lp-section.collapsed:not(:last-child) {
 	border-bottom: 1px solid var(--border-soft);
 }
+/* 注意：底部「新对话」按钮是 .lp-panel 的最后一个子节点，所以分区不再命中上面的
+   :last-child 例外 —— 最后一个分区（历史对话）也保留了下边框，即设计稿里按钮上方
+   那条细线。这是有意为之，不要当成多余的边框去掉。 */
 
-/* 展开：吃掉剩余空间，JS 内联 flexGrow 覆盖权重；未覆盖时默认为 1 */
+/* 展开：吃掉剩余空间，JS 内联 flexGrow 覆盖权重；未覆盖时默认为 1。
+   上限按内容（fit-content）：内容装不满自己那份的区不再硬占 1/N 留下大片空白，
+   腾出的高度自动让给还能长的区（长列表照旧增长并在内部滚动）。 */
 .lp-section:not(.collapsed) {
 	flex: 1 1 0px;
 	min-height: 72px; /* 至少 3 行可视 */
+	max-height: fit-content;
+}
+/* 兜底填充区：无区可再增长时，由 JS 指定的最后一个展开区填满剩余高度，
+   避免底部留洞（该区可滚动，长列表正好用满）。 */
+.lp-section.lp-section-fill:not(.collapsed) {
+	max-height: none;
 }
 /* 折叠：仅保留标题高度 32px，彻底不占剩余空间；!important 确保覆盖内联 weight */
 .lp-section.collapsed {
@@ -540,6 +551,51 @@ body.panel-resizing {
 /* Special: recent projects has thicker divider (visual only) */
 .lp-section.panel-projects {
 	border-bottom-width: 2px;
+}
+
+/* 新对话：常驻左栏底部（滚动区之外），整宽 + 圆角 + hover/active，参照 Chrome 的分组按钮。
+   flex-shrink:0 保证永不被列表压扁；margin 让其与列表有呼吸感。 */
+.lp-new-chat-action {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	flex: 0 0 auto;
+	width: calc(100% - 20px);
+	/* margin-top:auto —— 各区都折叠（没有任何 flex-grow 项）时，把按钮顶到面板底部，
+		而不是跟着最后一行标题停在半空。有展开区时剩余空间先被它们吃掉，auto 退化为 0。 */
+	margin: auto 10px 10px;
+	height: 38px;
+	padding: 0 10px;
+	border: 1px solid var(--control-border, var(--border));
+	border-radius: 9px;
+	background: var(--chip-bg, var(--control-bg, var(--bg-elev2)));
+	color: var(--text-dim);
+	font-size: 12px;
+	font-weight: 600;
+	font-family: inherit;
+	cursor: pointer;
+	transition:
+		background 0.15s ease,
+		color 0.15s ease,
+		border-color 0.15s ease;
+}
+.lp-new-chat-action:hover {
+	background: var(--accent-soft);
+	border-color: var(--accent);
+	color: var(--text);
+}
+.lp-new-chat-action:active {
+	transform: scale(0.985);
+}
+.lp-new-chat-action:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.lp-new-chat-action svg {
+	width: 15px;
+	height: 15px;
+	flex-shrink: 0;
 }
 
 /* Sash between two expanded sections — 仅在两端均为展开态时渲染 (JS 控制) */
