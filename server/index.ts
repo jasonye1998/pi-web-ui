@@ -2189,6 +2189,7 @@ wss.on("connection", (ws) => {
 					toolsWrap: msg.toolsWrap,
 					devNoCache: (msg as { devNoCache?: boolean }).devNoCache,
 					autoReload: (msg as { autoReload?: boolean }).autoReload,
+					autoUpdate: (msg as { autoUpdate?: boolean }).autoUpdate,
 					skillsFullText: (msg as { skillsFullText?: string[] }).skillsFullText,
 					visionBridgeEnabled: msg.visionBridgeEnabled,
 					visionBridgeModel: msg.visionBridgeModel,

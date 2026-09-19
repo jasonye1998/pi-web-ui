@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
-import { TopBar } from "../../web/src/components/TopBar.js";
+import { UpdatesPanel } from "../../web/src/components/UpdatesPanel.js";
+import { resetAppGlobals, setAppGlobals, setAppSend } from "../../web/src/app-globals.js";
 import { LanguageProvider } from "../../web/src/i18n.js";
-import type { ChatState } from "../../web/src/use-chat.js";
 
 /**
  * w9: outdated update rows show `[button] <name> v123 -> v125`.
@@ -22,31 +22,26 @@ import type { ChatState } from "../../web/src/use-chat.js";
  * name. The meta carries margin-left: auto so the second line sits right
  * while button + name stay left on the first line.
  *
+ * PR4 moved these rows out of the top-bar update dropdown into the Settings →
+ * "更新" page (web/src/components/UpdatesPanel.tsx), so the harness renders
+ * that component directly. The assertions are unchanged.
+ *
  * Zero token / zero port: true jsdom + true React render, DOM order asserts.
  */
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CSS = readFileSync(join(ROOT, "web", "src", "styles.css"), "utf8");
 
-const chatStub = {
-	status: "open",
-	ready: true,
-	state: null,
-	activeConversationId: "",
-	terminals: [],
-	bgServers: [],
-	tabs: undefined,
-	update: null,
-	updatesAll: [
-		{ name: "demo-ext", kind: "package", current: "123", latest: "125", upToDate: false },
-		{ name: "steady-ext", kind: "package", current: "10", latest: "10", upToDate: true },
-		{ name: "broken-ext", kind: "package", current: "1", latest: null, upToDate: false, error: "nope" },
-	],
-} as unknown as ChatState;
+const updatesAll = [
+	{ name: "demo-ext", kind: "package", current: "123", latest: "125", upToDate: false },
+	{ name: "steady-ext", kind: "package", current: "10", latest: "10", upToDate: true },
+	{ name: "broken-ext", kind: "package", current: "1", latest: null, upToDate: false, error: "nope" },
+] as const;
 
 let root: Root | null = null;
 
-function mount() {
+function mount(onSend?: (msg: unknown) => void) {
+	if (onSend) setAppSend(onSend as Parameters<typeof setAppSend>[0]);
 	const container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container);
@@ -55,41 +50,15 @@ function mount() {
 			createElement(
 				LanguageProvider,
 				null,
-				createElement(TopBar, {
-					chat: chatStub,
-					terminal: {
-						create: () => {},
-						close: () => {},
-						register: () => () => {},
-						restart: () => {},
-						select: () => {},
-					},
-					view: "chat",
-					plugins: [],
-					onViewChange: () => {},
-					onOpenPanel: () => {},
-					onOpenSettings: () => {},
-					onOpenBgTasks: () => {},
-					onOpenGlobalSearch: () => {},
-					sound: { enabled: false, volume: 0.5, kinds: {} },
-					onSoundChange: () => {},
-					onSoundPreview: () => {},
-					themes: [],
-					theme: null,
-					onThemeChange: () => {},
-					reloadThemes: () => {},
-				} as unknown as Parameters<typeof TopBar>[0]),
+				createElement(UpdatesPanel, {
+					update: null,
+					updatesAll: updatesAll as unknown as Parameters<typeof UpdatesPanel>[0]["updatesAll"],
+					autoUpdate: false,
+					onAutoUpdateChange: () => {},
+					onRunTerminalCommand: () => {},
+				}),
 			),
 		);
-	});
-	// Open every closed dropdown (sound / language / update / mobile panel):
-	// the update rows only enter the DOM when their menu is open.
-	act(() => {
-		for (const chip of Array.from(
-			container.querySelectorAll<HTMLButtonElement>('button.chip[aria-expanded="false"]'),
-		)) {
-			chip.click();
-		}
 	});
 	return container;
 }
@@ -98,6 +67,21 @@ afterEach(() => {
 	if (root) act(() => root!.unmount());
 	root = null;
 	document.body.innerHTML = "";
+	resetAppGlobals();
+	setAppSend(null);
+});
+
+describe("UpdatesPanel · 受管实例（PI_WEB_MANAGED=1）", () => {
+	it("只留一句说明：不画更新入口、不发检查消息", () => {
+		localStorage.setItem("pi-web-ui:lang", "zh");
+		const sent: string[] = [];
+		setAppGlobals({ managed: true });
+		const container = mount((msg) => sent.push((msg as { type: string }).type));
+		expect(container.querySelector(".upd-app")).toBeNull();
+		expect(container.querySelector(".dd-updates-all")).toBeNull();
+		expect(container.querySelector(".set-note")?.textContent).toContain("部署方管理");
+		expect(sent).toEqual([]);
+	});
 });
 
 describe("w10 update row layout", () => {

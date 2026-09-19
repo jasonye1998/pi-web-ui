@@ -1868,6 +1868,9 @@ export interface UiSettingsState {
 	devNoCache?: boolean;
 	/** 新构建就绪自动重载页面。默认跟安装方式（源码开/安装包关），设置可覆盖。 */
 	autoReload?: boolean;
+	/** 桌面端自动更新（默认关）：开 = 启动时自动检查并下载新版本；关 = 只能手动点「检查更新」。
+	 *  纯偏好，主进程（desktop/main.ts）直接从 client-state.json 读，服务端只负责持久化与下发。 */
+	autoUpdate?: boolean;
 	/** 工具调用是否默认展开（默认开 = 展开；关 = 折叠）。 */
 	toolsWrap: boolean;
 	/** skill 全文注入名单（默认空 = 名录模式）：名单里的技能 {{skills}} 展开正文。 */

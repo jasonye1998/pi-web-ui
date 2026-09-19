@@ -12790,6 +12790,182 @@ button.source-default-toggle {
 	border-color: rgba(245, 158, 11, 0.65);
 }
 
+/* --------------------------------------------------- 设置面板 → 「更新」页（PR4）
+   更新界面从顶栏下拉搬进设置面板后新加的样式，统一 `.upd-` 前缀。
+   颜色一律走 token（css-tokens.test.ts 只查「引用未定义」，但硬编码色在
+   浅色主题下必错，参见 .dd-* 那一族的历史）。 */
+
+/* 应用本体卡片：图标 + 名称/版本 + 右侧状态徽标。 */
+.upd-app {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 10px 12px;
+	border: 1px solid var(--border-soft);
+	border-radius: 10px;
+	background: var(--bg-elev);
+}
+.upd-app-icon {
+	flex-shrink: 0;
+	border-radius: 8px;
+}
+.upd-app-meta {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.upd-app-name {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--text);
+}
+.upd-app-version {
+	font-size: 11.5px;
+	font-family: var(--mono);
+	color: var(--text-dim);
+}
+
+/* 状态徽标：小圆点 + 文案，四种语义色。 */
+.upd-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: auto;
+	flex-shrink: 0;
+	padding: 3px 10px;
+	border: 1px solid var(--border-soft);
+	border-radius: 999px;
+	font-size: 11.5px;
+	color: var(--text-dim);
+	background: var(--bg-elev2);
+}
+.upd-status-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--text-faint);
+	flex-shrink: 0;
+}
+.upd-status.ok {
+	color: var(--green);
+	border-color: rgba(34, 197, 94, 0.35);
+	background: rgba(34, 197, 94, 0.08);
+}
+.upd-status.ok .upd-status-dot {
+	background: var(--green);
+}
+.upd-status.warn {
+	color: var(--amber);
+	border-color: rgba(245, 158, 11, 0.35);
+	background: rgba(245, 158, 11, 0.08);
+}
+.upd-status.warn .upd-status-dot {
+	background: var(--amber);
+}
+.upd-status.err {
+	color: var(--red);
+	border-color: rgba(248, 113, 113, 0.35);
+	background: rgba(248, 113, 113, 0.08);
+}
+.upd-status.err .upd-status-dot {
+	background: var(--red);
+}
+/* 检查中/下载中：圆点呼吸，避免看起来像卡死。 */
+.upd-status.busy .upd-status-dot {
+	animation: upd-pulse 1.2s ease-in-out infinite;
+}
+@keyframes upd-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.25;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.upd-status.busy .upd-status-dot {
+		animation: none;
+	}
+}
+
+/* 下载进度条：细、圆角，只在下载阶段占位。 */
+.upd-bar {
+	height: 4px;
+	border-radius: 999px;
+	background: var(--bg-elev2);
+	overflow: hidden;
+}
+.upd-bar-fill {
+	height: 100%;
+	background: var(--accent);
+	transition: width 0.2s ease;
+}
+
+/* 操作按钮行：终端/下载/安装/手动下载并排，窄屏自动换行。 */
+.upd-actions {
+	display: flex;
+	align-items: stretch;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+/* .dd-refresh 在原来的下拉里是整行按钮（width:100% + 顶边线），这里改成同行
+   的小按钮：去掉宽度与边框线，宽度由内容决定。 */
+.upd-actions .dd-refresh {
+	width: auto;
+	margin-top: 0;
+	border-top: none;
+	border: 1px solid var(--border-soft);
+	border-radius: 8px;
+	padding: 6px 12px;
+	font-size: 12px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+}
+.upd-actions .dd-refresh:not(.accent) {
+	color: var(--text-dim);
+}
+.upd-actions .dd-refresh:not(.accent):hover {
+	color: var(--text);
+	border-color: var(--border);
+}
+/* 「去下载页手动安装」是 <a>，靠 .dd-more-link 的 flex 对齐，这里只需去掉下划线。 */
+.upd-actions a.dd-refresh {
+	text-decoration: none;
+}
+
+/* 自动更新开关区块：与上方操作区隔开一条细线。 */
+.upd-auto {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding-top: 10px;
+	border-top: 1px solid var(--border-soft);
+}
+.upd-auto .set-row {
+	padding: 0;
+	/* 说明换行后行高变高，开关/说明与文字块顶部对齐更整齐。 */
+	align-items: flex-start;
+}
+/* 自动更新说明是一整句话（不是 .set-row-desc 惯用的短语），
+   全局的 nowrap + 省略号会把它截成一行半，这里放开换行。 */
+.upd-auto .set-row-desc {
+	white-space: normal;
+	overflow: visible;
+	text-overflow: clip;
+	line-height: 1.45;
+}
+/* 非桌面壳（浏览器部署）的「不可用」说明现在走 .set-hint（见 UpdatesPanel），
+   这里不再需要右侧窄列样式。 */
+.upd-warn-icon {
+	margin-right: 5px;
+	vertical-align: -1px;
+	color: var(--amber);
+}
+
 /* 旧消息摘要行：展开指示放左边。 */
 .msg-collapsed-action {
 	order: -1;

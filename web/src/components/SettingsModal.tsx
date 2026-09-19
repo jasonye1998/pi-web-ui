@@ -50,6 +50,7 @@ import type {
 	UiSubagentTemplate,
 } from "../types";
 import { SchedulerPanel } from "./SchedulerPanel";
+import { UpdatesPanel } from "./UpdatesPanel";
 import {
 	clearPromptHistory,
 	loadPromptHistory,
@@ -63,7 +64,7 @@ import { useProjectTitle, saveTitleSettings } from "../title-settings";
 import { sanitizeWallpaperUrl, fileToWallpaperUrl, saveWallpaperSettings, useWallpaperSettings } from "../wallpaper";
 import { useT, useI18n } from "../i18n";
 import { buildUiSlots, restoreAllUi, restoreUiItem, withPluginViewItems, type UiSlotEntry } from "../ui-slots";
-import type { CatalogSyncState, PluginJobState } from "../use-chat";
+import type { CatalogSyncState, PluginJobState, UpdateAllItem } from "../use-chat";
 import { appSend, useAppGlobals } from "../app-globals";
 import { countPluginPhases, pluginPhase, type PluginPhase } from "../plugin-phase";
 import {
@@ -150,10 +151,23 @@ interface SettingsModalProps {
 		activeConversationId?: string | null;
 		/** 内置定时任务（issue #184，全局列表；DSH 引擎下为空） */
 		schedulerTasks: SchedulerTaskView[];
+		/** 自身版本检查结果（更新页展示；null = 未检查/检查中）。 */
+		update: {
+			current: string;
+			latest: string | null;
+			latestPublishedAt: string | null;
+			upToDate: boolean;
+			error?: string;
+		} | null;
+		/** 全来源更新检查（webui + pi 核心 + 已装组件；null = 检查中）。 */
+		updatesAll: UpdateAllItem[] | null;
 	};
 	terminal: SettingsTerminalBridge;
 	/** Switch the top-level view to the terminal (uninstall runs there). */
 	onSwitchToTerminal: () => void;
+	/** 打开时直接落到这个分区（顶栏 ⋯ 里的「更新」条目 → "updates"）。
+	 *  只在首次挂载时生效，之后由面板自己的导航控制。 */
+	initialTab?: SettingsTab;
 	onClose: () => void;
 }
 
@@ -349,7 +363,7 @@ function PluginLogView({ pluginId }: { pluginId: string }) {
  *  插件自定义页（`settings.pages`）复用同一套导航：id 形如 `plugin-page:<条目全局 id>`
  *  —— 条目全局 id 本身是 `<pluginId>:<itemId>`，所以整串是 `plugin-page:<pluginId>:<itemId>`；
  *  一个插件可以贡献多页，故不用 `plugin-page:<pluginId>`（会撞车）。 */
-type SettingsTab =
+export type SettingsTab =
 	| "prompt"
 	| "prompt-history"
 	| "scheduler"
@@ -364,11 +378,12 @@ type SettingsTab =
 	| "layout"
 	| "review"
 	| "vision"
+	| "updates"
 	| "presets"
 	| "subagent-templates"
 	| `plugin-page:${string}`;
 
-export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: SettingsModalProps) {
+export function SettingsModal({ chat, terminal, onSwitchToTerminal, initialTab, onClose }: SettingsModalProps) {
 	const t = useT();
 	const { locale } = useI18n();
 	// {{token}} 元数据文案键是动态的（promptTok_<token>[,_desc]），用 tt 跳过字面量类型。
@@ -378,8 +393,8 @@ export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: S
 	const { engine, managed } = useAppGlobals();
 	// DSH 引擎：无 pi 扩展/技能体系与视觉桥概念 —— 隐藏对应分区/改占位说明。
 	const isDsh = engine === "dsh";
-	// 当前左侧导航选中的分组。
-	const [tab, setTab] = useState<SettingsTab>("prompt");
+	// 当前左侧导航选中的分组（初始值可由调用方指定，见 initialTab）。
+	const [tab, setTab] = useState<SettingsTab>(initialTab ?? "prompt");
 	// 界面插件分组内的子页签：市场 / 已安装（一次只看一坨，免得 5 大块堆在一起滚半天；默认进市场，安装一步直达）。
 	const [pluginSub, setPluginSub] = useState<"market" | "installed">("market");
 	// 内容滚动容器：切换分组后回到顶部（各组高度不同，停留旧滚动位置会像没切换）。
@@ -665,6 +680,7 @@ export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: S
 		{ id: "review", icon: <FiZap />, label: t("settingsReview"), count: settings.reviewSkills.length },
 		// DSH：无视觉桥概念（真图片直通 vision 模型），隐藏该分区。
 		...(isDsh ? [] : [{ id: "vision" as const, icon: <FiEye />, label: t("settingsVisionBridge") }]),
+		{ id: "updates", icon: <FiDownload />, label: t("update") },
 		{ id: "presets", icon: <FiSliders />, label: t("settingsPresets"), count: settings.presets.length },
 		// DSH：无子代理概念，隐藏该分区。
 		...(isDsh
@@ -729,6 +745,8 @@ export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: S
 		toolsWrap?: boolean;
 		devNoCache?: boolean;
 		autoReload?: boolean;
+		/** 桌面端自动更新开关（默认关；纯偏好，主进程读 client-state.json）。 */
+		autoUpdate?: boolean;
 		skillsFullText?: string[];
 		quickPhrases?: string[];
 		quickPhrasesEnabled?: boolean;
@@ -3240,6 +3258,17 @@ export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: S
 										</p>
 									))}
 							</div>
+						)}
+
+						{/* ---- updates (PR4) ------------------------------------------------ */}
+						{tab === "updates" && (
+							<UpdatesPanel
+								update={chat.update}
+								updatesAll={chat.updatesAll}
+								autoUpdate={settings.autoUpdate ?? false}
+								onAutoUpdateChange={(enabled) => setPartial({ autoUpdate: enabled })}
+								onRunTerminalCommand={runTerminalCommand}
+							/>
 						)}
 
 						{tab === "presets" && isDsh && chat.dshPresets && chat.dshPresets.presets.length > 0 && (

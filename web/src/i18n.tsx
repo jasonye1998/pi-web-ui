@@ -289,6 +289,12 @@ export const zh = {
 	updateAllBtn: "全部更新",
 	updatePkgTabTitle: "更新 {name}",
 	updateAllTabTitle: "更新全部组件",
+	updNotChecked: "尚未检查更新",
+	updAutoUpdate: "自动更新",
+	updAutoUpdateHint:
+		"开启后：启动时自动检查并下载新版本，退出应用时安装，下次启动即为新版本（版本会在重启后变化）。关闭后：只在上面点“检查更新”时才下载。",
+	updDesktopOnly: "自动更新只在桌面应用里可用；浏览器版请用上面的终端命令更新。",
+	updAutoInstallWarn: "退出应用时会自动安装已下载的新版本，下次启动即为新版本。",
 	restartService: "重启服务",
 	restartingService: "重启中…",
 	restartServiceTip:
@@ -1740,6 +1746,14 @@ const en: Record<keyof typeof zh, string> = {
 	updateAllBtn: "Update all",
 	updatePkgTabTitle: "Update {name}",
 	updateAllTabTitle: "Update all components",
+	updNotChecked: "Not checked yet",
+	updAutoUpdate: "Automatic updates",
+	updAutoUpdateHint:
+		"On: check and download new versions at startup, install them when you quit, so the new version takes effect on the next launch (the version changes after a restart). Off: download only when you press “Check for updates”.",
+	updDesktopOnly:
+		"Automatic updates are only available in the desktop app; in the browser use the terminal command above.",
+	updAutoInstallWarn:
+		"A downloaded update is installed automatically when you quit, so the new version takes effect on the next launch.",
 	restartService: "Restart service",
 	restartingService: "Restarting…",
 	restartServiceTip:

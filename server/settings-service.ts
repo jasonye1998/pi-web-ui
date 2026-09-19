@@ -341,6 +341,7 @@ export class SettingsService {
 				goalModeEnabled: this.settings.goalModeEnabled,
 				devNoCache: this.settings.devNoCache ?? this.defaultDevNoCache(),
 				autoReload: this.settings.autoReload ?? this.defaultDevNoCache(),
+				autoUpdate: this.settings.autoUpdate ?? false,
 				thinkingWrap: this.settings.thinkingWrap,
 				toolsWrap: this.settings.toolsWrap,
 				visionBridgeEnabled: this.settings.visionBridgeEnabled,
@@ -454,6 +455,7 @@ export class SettingsService {
 		toolsWrap?: boolean;
 		devNoCache?: boolean;
 		autoReload?: boolean;
+		autoUpdate?: boolean;
 		skillsFullText?: string[];
 		visionBridgeEnabled?: boolean;
 		visionBridgeModel?: string | null;
@@ -563,6 +565,10 @@ export class SettingsService {
 		}
 		if (partial.autoReload !== undefined) {
 			this.settings.autoReload = partial.autoReload;
+		}
+		// 桌面端自动更新偏好：主进程从 client-state.json 直接读，服务端只负责落盘与下发。
+		if (partial.autoUpdate !== undefined) {
+			this.settings.autoUpdate = partial.autoUpdate;
 		}
 		if (partial.thinkingWrap !== undefined) {
 			this.settings.thinkingWrap = partial.thinkingWrap;
@@ -740,6 +746,7 @@ export class SettingsService {
 			// 纯 UI 偏好不进预设——保留当前值。
 			devNoCache: this.settings.devNoCache,
 			autoReload: this.settings.autoReload,
+			autoUpdate: this.settings.autoUpdate,
 			thinkingWrap: this.settings.thinkingWrap,
 			toolsWrap: this.settings.toolsWrap,
 			// UI 布局偏好也不进预设——保留当前值。

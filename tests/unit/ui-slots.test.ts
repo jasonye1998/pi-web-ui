@@ -136,6 +136,10 @@ describe("buildUiSlots / 第 1 层：宿主默认", () => {
 		expect(settings?.kind).toBe("action");
 		expect(settings?.hidden).toBe(false);
 		expect(settings?.order).toBe(60);
+		// PR4：更新入口默认收进 ⋯ 溢出菜单（界面搬去了设置面板），布局页仍可勾回来。
+		const update = slots["topbar.primary"].find((e) => e.id === "host:update");
+		expect(update?.hidden).toBe(true);
+		expect(update?.source).toBe("host");
 		// 没用到的槽位是空数组（渲染层不必判空），且全部槽位都在（20 个 + modal.dialog）
 		expect(Object.keys(slots)).toHaveLength(21);
 		expect(slots["composer.leading"]).toEqual([]);

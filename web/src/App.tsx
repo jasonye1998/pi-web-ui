@@ -48,7 +48,8 @@ import { setFenceSend, syncFenceRenderers, syncMessageWidgets } from "./plugin-f
 import { PiSetupModal } from "./components/PiSetupModal";
 import { ModelConfigModal } from "./components/ModelConfigModal";
 
-import { SettingsModal } from "./components/SettingsModal";
+import { SettingsModal, type SettingsTab } from "./components/SettingsModal";
+import { setDesktopAutoUpdate } from "./desktop-updater";
 import { BgTasksModal } from "./components/BgTasksModal";
 import { GlobalSearchModal } from "./components/GlobalSearchModal";
 import { PluginModal } from "./components/PluginModal";
@@ -568,6 +569,8 @@ export function App() {
 	const [manageModelsOpen, setManageModelsOpen] = useState(false);
 	// Settings panel (system prompt / skills / extensions / presets).
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	/** 设置面板打开时直接落到哪个分区（顶栏 ⋯ 里的「更新」条目 → "updates"）。 */
+	const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
 	// 插件请求目录授权时的确认（host.openSession，issue #146）——非模态 inline 面板。
 	const [pluginPathConfirm, setPluginPathConfirm] = useState<{ path: string; resolve: (ok: boolean) => void } | null>(
 		null,
@@ -792,6 +795,16 @@ export function App() {
 			}
 		}
 	}, [chat.terminals, send]);
+
+	/** 把「自动更新」偏好同步给桌面壳主进程（PR4）。
+	 *  主进程启动时已自行从 client-state.json 读过一次（见 desktop/main.ts 的
+	 *  readAutoUpdatePref），这里只是把**运行时切换**推过去（IPC → autoDownload，
+	 *  必要时立即开始下载）。settings 还没到（null）时不推：否则会用默认 false
+	 *  把主进程刚读到的 true 抹掉。非桌面壳里 setDesktopAutoUpdate 是空操作。 */
+	useEffect(() => {
+		if (!chat.settings) return;
+		setDesktopAutoUpdate(chat.settings.autoUpdate ?? false);
+	}, [chat.settings?.autoUpdate]);
 
 	// Run start / end cues (streaming edge transitions).
 	useEffect(() => {
@@ -1145,7 +1158,6 @@ export function App() {
 			)}
 			<TopBar
 				chat={chat}
-				terminal={terminal}
 				view={view}
 				plugins={enabledPlugins}
 				uiPrimary={uiPrimary}
@@ -1163,7 +1175,10 @@ export function App() {
 					setDrawer(null);
 				}}
 				onOpenPanel={setDrawer}
-				onOpenSettings={() => setSettingsOpen(true)}
+				onOpenSettings={(tab?: SettingsTab) => {
+					setSettingsTab(tab);
+					setSettingsOpen(true);
+				}}
 				onOpenBgTasks={() => setBgTasksOpen(true)}
 				onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
 				sound={sound}
@@ -1812,6 +1827,7 @@ export function App() {
 					chat={chat}
 					terminal={terminal}
 					onSwitchToTerminal={() => setView("terminal")}
+					initialTab={settingsTab}
 					onClose={() => setSettingsOpen(false)}
 				/>
 			)}

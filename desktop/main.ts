@@ -12,7 +12,7 @@
  */
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -95,6 +95,25 @@ let serverProc: ChildProcess | null = null;
 let mainWin: BrowserWindow | null = null;
 let serverHealthy = false;
 
+/** sidecar 的数据目录（与 startServerSidecar 里传给 server 的完全同一个值）。 */
+function resolveDataDir(): string {
+	return process.env.PI_WEB_DATA_DIR ?? join(app.getPath("userData"), "data");
+}
+
+/** 不建 ClientStateStore 就直读全局设置块里的 autoUpdate（同 server/index.ts 的
+ *  readDevNoCacheSetting）：主进程要在窗口/前端水合之前就定好 autoDownload，
+ *  否则启动检查会与渲染进程的设置同步抢跑。读不到（首次启动/文件损坏）= 默认关。 */
+function readAutoUpdatePref(): boolean {
+	try {
+		const raw = readFileSync(join(resolveDataDir(), "client-state.json"), "utf8");
+		const all = JSON.parse(raw) as Record<string, { settings?: { autoUpdate?: unknown } }>;
+		const v = all["__settings__"]?.settings?.autoUpdate;
+		return typeof v === "boolean" ? v : false;
+	} catch {
+		return false;
+	}
+}
+
 console.log("[desktop] main started, waiting for app ready…");
 
 async function startServerSidecar(): Promise<string> {
@@ -104,7 +123,7 @@ async function startServerSidecar(): Promise<string> {
 	resolveWebDir();
 	console.log(`[desktop] server entry: ${entry}`);
 	const port = await resolvePort();
-	const dataDir = process.env.PI_WEB_DATA_DIR ?? join(app.getPath("userData"), "data");
+	const dataDir = resolveDataDir();
 	const cwd = process.env.PI_WEB_CWD ?? homedir();
 	console.log(`[desktop] spawning server on 127.0.0.1:${port} (data: ${dataDir})`);
 	// ELECTRON_RUN_AS_NODE=1：让 Electron 二进制退化成纯 Node 跑 server，
@@ -235,7 +254,9 @@ app.on("will-quit", () => {
 // 的服务来自包内 `dist/server` —— npm 换的是别处，桌面用户只能手换 dmg。
 // 现在主进程经 electron-updater 直连 GitHub releases 的 latest*.yml：
 // check（只拉元数据）→ download（进度回传）→ quitAndInstall（重启即装好）。
-// autoDownload=false：下载必须由用户在更新面板里点按钮触发，不搞 surprise 下载。
+//
+// autoDownload 由用户偏好 autoUpdate 决定（默认关，见 settings → 更新 → 自动更新）：
+// 关 = 启动不查、只等用户点按钮（不搞 surprise 下载）；开 = 启动即自动检查并下载。
 //
 // 前端（web/，与浏览器同一份代码）经 preload 的 `window.piDesktop.updater`
 // 调 invoke/订阅 event，全走 IPC，不与 server/protocol.ts 分叉。
@@ -250,17 +271,27 @@ interface DesktopUpdaterEvent {
 	message?: string;
 }
 
+/** 最近一条推给 renderer 的更新事件：设置面板是唯一的更新状态界面，而且它按需挂载
+ *  （打开设置才 mount），启动检查的事件会早于任何监听者 —— 所以主进程留一份，
+ *  面板首次订阅时用 `pi-desktop-updater:status` 补齐。 */
+let lastUpdaterEvent: DesktopUpdaterEvent | null = null;
+
 function pushUpdaterEvent(msg: DesktopUpdaterEvent): void {
+	lastUpdaterEvent = msg;
 	mainWin?.webContents.send("pi-desktop-updater:event", msg);
 }
 
 let updaterWired = false;
+/** 内存里的自动更新偏好（主进程是它的事实源；渲染进程改设置时经 set-auto 同步过来）。 */
+let autoUpdatePref = false;
 
 async function wireAutoUpdater(): Promise<void> {
 	if (updaterWired) return;
 	updaterWired = true;
 	// dev（`npm run desktop:dev`，isPackaged=false）也注册同一套 IPC：调用直接
 	// 报“仅打包后可用”，前端据此显示下载页指引 —— 不让 invoke 挂起无 handler。
+	// set-auto / status 例外：前者是写偏好（非动作），dev 下静默返回 false；
+	// 后者只是取状态，返回 null（= 没收到过事件）。
 	if (!app.isPackaged) {
 		const devOnly = () => {
 			throw new Error("auto-update 只在打包后的桌面应用里可用（dev 请去下载页）");
@@ -268,6 +299,8 @@ async function wireAutoUpdater(): Promise<void> {
 		ipcMain.handle("pi-desktop-updater:check", devOnly);
 		ipcMain.handle("pi-desktop-updater:download", devOnly);
 		ipcMain.handle("pi-desktop-updater:quit-install", devOnly);
+		ipcMain.handle("pi-desktop-updater:set-auto", () => false);
+		ipcMain.handle("pi-desktop-updater:status", () => null);
 		return;
 	}
 	// electron-updater 的 autoUpdater 是 `Object.defineProperty(exports, "autoUpdater", { get })`
@@ -289,9 +322,13 @@ async function wireAutoUpdater(): Promise<void> {
 		ipcMain.handle("pi-desktop-updater:check", unavailable);
 		ipcMain.handle("pi-desktop-updater:download", unavailable);
 		ipcMain.handle("pi-desktop-updater:quit-install", unavailable);
+		ipcMain.handle("pi-desktop-updater:set-auto", () => false);
+		ipcMain.handle("pi-desktop-updater:status", () => null);
 		return;
 	}
-	autoUpdater.autoDownload = false;
+	// 启动检查必须先知道偏好：直接从 client-state.json 读，不等渲染进程水合。
+	autoUpdatePref = readAutoUpdatePref();
+	autoUpdater.autoDownload = autoUpdatePref;
 	autoUpdater.autoInstallOnAppQuit = true;
 	autoUpdater.on("checking-for-update", () => pushUpdaterEvent({ state: "checking" }));
 	autoUpdater.on("update-available", (info) =>
@@ -324,8 +361,30 @@ async function wireAutoUpdater(): Promise<void> {
 		autoUpdater.quitAndInstall(false, true);
 		return true;
 	});
+	ipcMain.handle("pi-desktop-updater:status", () => lastUpdaterEvent);
+	// 自动更新开关：渲染进程改设置时同步过来（落盘由 server 的 set_settings 负责）。
+	// 关→开时立刻补一次检查：electron-updater 的 autoDownload 只在 checkForUpdates
+	// 的分支里生效，已经 check 过的会话不会自己回头下载；若此刻已经是「有新版」，
+	// 直接 downloadUpdate()（内部有 downloadPromise 去重，重复调不会下两次）。
+	ipcMain.handle("pi-desktop-updater:set-auto", async (_e, enabled: unknown) => {
+		const next = enabled === true;
+		// 前端每次启动都会把当前偏好推过来（settings 到齐时）；值没变就什么都不做 ——
+		// 否则自动更新用户在每次启动时都会多挨一次「即时检查」。
+		if (next === autoUpdatePref) return true;
+		autoUpdatePref = next;
+		autoUpdater.autoDownload = autoUpdatePref;
+		if (!autoUpdatePref) return true;
+		try {
+			if (lastUpdaterEvent?.state === "available") await autoUpdater.downloadUpdate();
+			else await autoUpdater.checkForUpdates();
+		} catch (err) {
+			console.error(`[desktop] 开启自动更新后的即时检查失败（不影响使用）：${(err as Error).message}`);
+		}
+		return true;
+	});
 	// 开机静默查一次（只拉 yml 元数据，不下载）：面板打开时即有结论，
-	// 离线/无 release 时只记日志，不挡窗口。
+	// 离线/无 release 时只记日志，不挡窗口。关掉自动更新就不查 —— 完全手动。
+	if (!autoUpdatePref) return;
 	try {
 		await autoUpdater.checkForUpdates();
 	} catch (err) {

@@ -1,8 +1,8 @@
 /**
  * desktop preload — 只暴露最小只读信息 + 更新通道。业务全部走 HTTP/WS，
  * 不走 IPC，避免和 web/ 现有协议分叉；唯独应用内自动更新（issue #180）是
- * 主进程（electron-updater）的事，server sidecar 够不着，所以单开这三个
- * invoke（check/download/quit-install）+ 一个 event 订阅。
+ * 主进程（electron-updater）的事，server sidecar 够不着，所以单开这几个
+ * invoke（check/download/quit-install/set-auto/status）+ 一个 event 订阅。
  */
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld("piDesktop", {
 		check: () => ipcRenderer.invoke("pi-desktop-updater:check"),
 		download: () => ipcRenderer.invoke("pi-desktop-updater:download"),
 		quitAndInstall: () => ipcRenderer.invoke("pi-desktop-updater:quit-install"),
+		/** 自动更新开关（默认关）：落盘由 server 的 set_settings 负责，这里只通知主进程。 */
+		setAuto: (enabled: boolean) => ipcRenderer.invoke("pi-desktop-updater:set-auto", enabled === true),
+		/** 最近一条更新事件（null = 还没收到过）：设置面板晚于启动检查挂载时用它补齐。 */
+		status: () => ipcRenderer.invoke("pi-desktop-updater:status"),
 		onEvent: (cb: (msg: DesktopUpdaterEvent) => void) => {
 			const listener = (_event: IpcRendererEvent, msg: DesktopUpdaterEvent) => cb(msg);
 			ipcRenderer.on("pi-desktop-updater:event", listener);

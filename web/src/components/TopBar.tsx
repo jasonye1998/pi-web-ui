@@ -17,10 +17,7 @@ import {
 	FiTerminal,
 	FiVolume2,
 } from "react-icons/fi";
-import type { ChatState, UpdateAllItem } from "../use-chat";
-import type { CommandDef } from "../types";
-import { buildUpdateCommand } from "../update-command";
-import { randomUuid } from "../uuid";
+import type { ChatState } from "../use-chat";
 import { Dropdown, DropdownItem } from "./Dropdown";
 import { SoundSettingsPanel } from "./SoundSettings";
 import { BrowserControl } from "./BrowserControl";
@@ -32,11 +29,10 @@ import { useI18n, localeShort } from "../i18n";
 import { type UiSlotEntry } from "../ui-slots";
 import { fitTopbar, MOBILE_ASIDE_TOPBAR_IDS, sortOverflowMenuItems } from "../topbar-fit";
 import { openContextMenu } from "../context-menu-state";
-import { appSend, useAppField, useAppGlobals, useIsManaged, useServiceInfo } from "../app-globals";
+import { appSend, useAppField, useAppGlobals } from "../app-globals";
 import { ProjectPicker } from "./ProjectPicker";
 import { LocaleModal } from "./LocaleModal";
-import { isDesktopShell } from "../desktop";
-import { desktopReleasesUrl, useDesktopUpdater } from "../desktop-updater";
+import type { SettingsTab } from "./SettingsModal";
 
 /**
  * 顶栏「⋯」溢出菜单（issue #162）：portal 到 document.body + `position: fixed`。
@@ -174,21 +170,6 @@ function useIsMobileTopbar(): boolean {
 
 interface TopBarProps {
 	chat: ChatState;
-	/** Minimal terminal-tab bridge (same shape SCMPanel uses) — updates run there. */
-	terminal: {
-		create: (meta: {
-			id: string;
-			conversationId: string;
-			title: string;
-			cwd: string;
-			cols: number;
-			rows: number;
-			running: boolean;
-			exitCode: number | null;
-			command?: CommandDef;
-		}) => void;
-		restart: (id: string) => void;
-	};
 	view: "chat" | "terminal" | "git" | `plugin:${string}`;
 	onViewChange: (view: "chat" | "terminal" | "git" | `plugin:${string}`) => void;
 	/** Installed optional plugins (<dataDir>/plugins) — one view tab each
@@ -205,8 +186,9 @@ interface TopBarProps {
 	uiContextTopbar?: UiSlotEntry[];
 	/** Open a side panel as a mobile drawer ("left" = history, "right" = files). */
 	onOpenPanel: (side: "left" | "right") => void;
-	/** Open the settings panel (system prompt / skills / extensions / presets). */
-	onOpenSettings: () => void;
+	/** Open the settings panel (system prompt / skills / extensions / presets),
+	 *  optionally landing on a specific tab (the ⋯ overflow 「更新」 entry → "updates"). */
+	onOpenSettings: (tab?: SettingsTab) => void;
 	/** Open the background-task panel (AI-started servers — stop individually or all). */
 	onOpenBgTasks: () => void;
 	/** Open the global search panel (sessions / projects / workspace files). */
@@ -225,7 +207,6 @@ interface TopBarProps {
 
 export function TopBar({
 	chat,
-	terminal,
 	view,
 	plugins,
 	uiPrimary,
@@ -373,377 +354,14 @@ export function TopBar({
 			entries: uiContextTopbar ?? [],
 		});
 	};
-	// 受管标记与自身版本号：走全局（web/src/app-globals.ts），整个连接内不变。
+	// 受管标记与自身版本号走全局（web/src/app-globals.ts），整个连接内不变。
 	const { appVersion } = useAppGlobals();
-	const managed = useIsManaged();
-	// 由 pi-web-ui 服务启动的实例（launchd/systemd/Windows watchdog）：退出后会被
-	// supervisor 拉起，所以更新面板给出「重启服务」按钮；前台/dev 实例没有值。
-	const service = useServiceInfo();
-	const [restarting, setRestarting] = useState(false);
-	// 「重启服务」会断开连接（进程退出→supervisor 拉起）：重新连上（open）后
-	// 把按钮恢复可用，否则它会永远停在「重启中…」。
-	useEffect(() => {
-		if (restarting && chat.status === "open") setRestarting(false);
-	}, [restarting, chat.status]);
+	// 「重启服务」等更新相关状态全部搬到了设置面板（PR4），顶栏只留一个门牌
+	// （host:update，见下面的节点工厂），内容不再在顶栏里画。
 	const [soundOpen, setSoundOpen] = useState(false);
 	const [langOpen, setLangOpen] = useState(false);
 	const [themeOpen, setThemeOpen] = useState(false);
-	const [updateOpen, setUpdateOpen] = useState(false);
-	// 桌面壳（issue #180）：包内服务不受 npm 全局包影响，更新走主进程的
-	// electron-updater（preload IPC），npm 那套终端命令在这里不画。
-	// hook 必须在组件顶层调用 —— renderUpdateBody 会被调两次（桌面下拉 +
-	// 移动端 ⋯ 面板），hook 放闭包里一次渲染就跑两遍了。
-	const inDesktopShell = isDesktopShell();
-	const desktopUpdater = useDesktopUpdater();
 	const [localeModalOpen, setLocaleModalOpen] = useState(false);
-
-	/** Run `npm i -g pi-web-ui@latest` in a visible terminal tab (SCM-style):
-	 *  reuse the tab with the same title, otherwise create one; switch to the
-	 *  terminal view so the user watches the install live. */
-	const runUpdate = () => {
-		if (!chat.ready) return;
-		const title = t("updateTabTitle");
-		const cmd: CommandDef = {
-			name: title,
-			command: "npm i -g pi-web-ui@latest",
-			cwd: "${pwd}",
-		};
-		const existing = chat.terminals.find((tm) => tm.title === title);
-		if (existing) {
-			terminal.restart(existing.id);
-			appSend({
-				type: "run_command",
-				terminalId: existing.id,
-				conversationId: existing.conversationId,
-				command: cmd,
-				cols: 80,
-				rows: 24,
-			});
-		} else {
-			terminal.create({
-				id: randomUuid(),
-				conversationId: chat.activeConversationId || chat.state?.conversationId || "",
-				title,
-				cwd: chat.state?.cwd ?? "",
-				cols: 80,
-				rows: 24,
-				running: true,
-				exitCode: null,
-				command: cmd,
-			});
-		}
-		setUpdateOpen(false);
-		onViewChange("terminal");
-	};
-
-	/** Run the right update command for one or more components in a visible
-	 *  terminal tab (same SCM-style pattern as the self-update above): pi
-	 *  extensions go through `pi update npm:<name>` (they live under
-	 *  <agentDir>/npm), everything globally installed via `npm i -g`.
-	 *  Multi-target runs are chained with `;` so one failing step never
-	 *  blocks the rest. Reuses the tab with the same title, else creates one. */
-	const runPkgUpdate = (items: UpdateAllItem[], title: string) => {
-		if (!chat.ready || items.length === 0) return;
-		const cmd: CommandDef = {
-			name: title,
-			command: buildUpdateCommand(items),
-			cwd: "${pwd}",
-		};
-		const existing = chat.terminals.find((tm) => tm.title === title);
-		if (existing) {
-			terminal.restart(existing.id);
-			appSend({
-				type: "run_command",
-				terminalId: existing.id,
-				conversationId: existing.conversationId,
-				command: cmd,
-				cols: 80,
-				rows: 24,
-			});
-		} else {
-			terminal.create({
-				id: randomUuid(),
-				conversationId: chat.activeConversationId || chat.state?.conversationId || "",
-				title,
-				cwd: chat.state?.cwd ?? "",
-				cols: 80,
-				rows: 24,
-				running: true,
-				exitCode: null,
-				command: cmd,
-			});
-		}
-		setUpdateOpen(false);
-		onViewChange("terminal");
-	};
-
-	// Shared by the desktop update dropdown and the mobile "⋯" panel.
-	const allUpdates = chat.updatesAll ?? [];
-	// Pure errors don't count as "updates" — they're shown as failed rows.
-	const updatesCount = allUpdates.filter((i) => !i.upToDate && !i.error).length;
-	// Packages (+ the pi core) with a real newer version — targets of the
-	// per-row and "update all" buttons. The web UI itself is excluded: it has
-	// its own dedicated update flow above the all-components section.
-	const updatable = allUpdates.filter((i) => !i.upToDate && !i.error && i.kind !== "webui");
-	// Git-source rows show `host/path` (what the user put in settings.json and
-	// what `pi update` takes) instead of the clone's package.json name, which
-	// is often generic and unrecognizable. Full identity stays in the tooltip.
-	const gitDisplayName = (item: UpdateAllItem) =>
-		item.kind === "git-extension" && item.source ? item.source : item.name;
-	const gitNameTitle = (item: UpdateAllItem) =>
-		item.kind === "git-extension" && item.source && item.source !== item.name
-			? `${item.source} (${item.name})`
-			: item.name;
-	// Git SHAs carry no signal for users (`0.1.0 (aaa → bbb)`), so they are
-	// hidden from the version cell: outdated rows already stand out via the
-	// warn highlight + update button. Full values stay in the tooltip.
-	const stripGitSha = (v: string) => {
-		const s = v.replace(/ \([0-9a-f]{7}\)$/, "");
-		return /^[0-9a-f]{7}$/.test(s) ? "" : s;
-	};
-	const shortGitRange = (current: string, latest: string | null) => {
-		if (!latest) return stripGitSha(current);
-		const c = stripGitSha(current);
-		const l = stripGitSha(latest);
-		return c === l ? c : `${c} → ${l}`;
-	};
-	const renderAllUpdatesBody = () => (
-		<div className="dd-updates-all">
-			<div className="dd-header">{t("updatesAllTitle")}</div>
-			{chat.updatesAll === null ? (
-				<div className="dd-note">{t("checkingUpdate")}</div>
-			) : allUpdates.length === 0 ? (
-				<div className="dd-note">{t("updatesAllUpToDate")}</div>
-			) : (
-				<ul className="dd-all-list">
-					{allUpdates.map((item) => (
-						<li
-							key={`${item.kind}:${item.name}`}
-							className={`dd-all-item${item.error ? " err" : item.upToDate ? "" : " warn"}`}
-						>
-							{item.kind !== "webui" && !item.upToDate && !item.error && (
-								<button
-									type="button"
-									className="dd-update-btn"
-									onClick={() => runPkgUpdate([item], t("updatePkgTabTitle", { name: item.name }))}
-								>
-									{t("updateBtn")}
-								</button>
-							)}
-							<span className="dd-all-name" title={gitNameTitle(item)}>
-								{gitDisplayName(item)}
-							</span>
-							<span className="dd-all-meta">
-								<span className="dd-all-kind">
-									{item.kind === "webui"
-										? t("kindWebUi")
-										: item.kind === "pi-core"
-											? t("kindPiCore")
-											: item.kind === "git-extension"
-												? t("kindGitExtension")
-												: t("kindPackage")}
-								</span>
-								<span
-									className="dd-all-vers"
-									title={
-										item.error
-											? item.error
-											: item.kind === "git-extension"
-												? item.upToDate
-													? item.current
-													: `${item.current} → ${item.latest}`
-												: undefined
-									}
-								>
-									{item.error ? (
-										t("updateCheckFailed")
-									) : item.kind === "git-extension" ? (
-										item.upToDate ? (
-											stripGitSha(item.current)
-										) : (
-											shortGitRange(item.current, item.latest)
-										)
-									) : item.upToDate ? (
-										`v${item.current}`
-									) : (
-										<>
-											v{item.current} → v{item.latest}
-										</>
-									)}
-								</span>
-							</span>
-						</li>
-					))}
-				</ul>
-			)}
-			<div className="dd-actions">
-				{updatable.length > 0 && (
-					<button
-						type="button"
-						className="dd-refresh accent"
-						style={{ flex: 1 }}
-						onClick={() => runPkgUpdate(updatable, t("updateAllTabTitle"))}
-					>
-						{t("updateAllBtn")}
-					</button>
-				)}
-				<button
-					type="button"
-					className="dd-refresh"
-					style={updatable.length > 0 ? { flex: 1 } : undefined}
-					onClick={() => appSend({ type: "check_updates_all", force: true })}
-				>
-					{t("updatesAllRefresh")}
-				</button>
-			</div>
-		</div>
-	);
-	/** 桌面壳的更新区：electron-updater 查/下/装 + 永远可点的下载页直链。
-	 *  无 hook（状态全在组件顶层的 useDesktopUpdater 里），两处面板复用安全。 */
-	const renderDesktopUpdater = () => {
-		const manualUrl = desktopReleasesUrl(chat.update?.latest ?? desktopUpdater.version);
-		const manual = (
-			<a className="dd-refresh dd-more-link" href={manualUrl} target="_blank" rel="noreferrer noopener">
-				{t("updateDesktopManual")}
-			</a>
-		);
-		// 旧桌面壳（#180 之前）没有 updater 桥：只给下载页指引，不画更新按钮。
-		if (!desktopUpdater.bridge)
-			return (
-				<>
-					<div className="dd-note warn">{t("updateDesktopNoBridge")}</div>
-					{manual}
-				</>
-			);
-		switch (desktopUpdater.state) {
-			case "checking":
-				return (
-					<>
-						<div className="dd-note">{t("updateDesktopChecking")}</div>
-						{manual}
-					</>
-				);
-			case "available":
-				return (
-					<>
-						<div className="dd-note warn">
-							{t("updateDesktopAvailable", {
-								version: desktopUpdater.version ?? chat.update?.latest ?? "",
-							})}
-						</div>
-						<button type="button" className="dd-refresh accent" onClick={() => desktopUpdater.download()}>
-							{t("updateDesktopDownload")}
-						</button>
-						{manual}
-					</>
-				);
-			case "downloading":
-				return (
-					<>
-						<div className="dd-note">{t("updateDesktopDownloading", { n: desktopUpdater.percent })}</div>
-						{manual}
-					</>
-				);
-			case "downloaded":
-				return (
-					<>
-						<div className="dd-note ok">{t("updateDesktopDownloaded")}</div>
-						<button type="button" className="dd-refresh accent" onClick={() => desktopUpdater.quitAndInstall()}>
-							{t("updateDesktopInstall")}
-						</button>
-						{manual}
-					</>
-				);
-			case "up-to-date":
-				return <div className="dd-note ok">{t("upToDate")}</div>;
-			case "error":
-				return (
-					<>
-						<div className="dd-note warn">{t("updateDesktopError", { error: desktopUpdater.message ?? "" })}</div>
-						<button type="button" className="dd-refresh" onClick={() => desktopUpdater.check()}>
-							{t("updateDesktopCheck")}
-						</button>
-						{manual}
-					</>
-				);
-			default:
-				return (
-					<>
-						<button type="button" className="dd-refresh accent" onClick={() => desktopUpdater.check()}>
-							{t("updateDesktopCheck")}
-						</button>
-						{manual}
-					</>
-				);
-		}
-	};
-	const renderUpdateBody = () => (
-		<>
-			<div className="dd-update">
-				<div className="dd-row">
-					<span>{t("currentVersion")}</span>
-					<b>v{chat.update?.current ?? "…"}</b>
-				</div>
-				<div className="dd-row">
-					<span>{t("latestVersion")}</span>
-					<b>
-						{chat.update === null
-							? t("checkingUpdate")
-							: chat.update.error
-								? chat.update.error
-								: chat.update.latest
-									? `v${chat.update.latest}`
-									: t("checkingUpdate")}
-					</b>
-				</div>
-				{chat.update && chat.update.upToDate && <div className="dd-note ok">{t("upToDate")}</div>}
-				{chat.update && !chat.update.upToDate && chat.update.latest && (
-					<div className="dd-note warn">{t("updateAvailable", { version: chat.update.latest })}</div>
-				)}
-				{chat.update?.latestPublishedAt &&
-					Date.now() - new Date(chat.update.latestPublishedAt).getTime() < 30 * 60_000 && (
-						<div className="dd-note warn">
-							{t("updateJustPublished", {
-								version: chat.update.latest ?? "",
-							})}
-						</div>
-					)}
-				{/* 浏览器：npm 终端命令；桌面壳：npm 对包内服务无效，走应用内更新 */}
-				{chat.update && !chat.update.upToDate && chat.update.latest && !inDesktopShell && (
-					<div className="dd-note">{t("updateTerminalHint")}</div>
-				)}
-				{chat.update && !chat.update.upToDate && chat.update.latest && inDesktopShell && (
-					<div className="dd-note">{t("updateDesktopNote")}</div>
-				)}
-			</div>
-			<div className="dd-actions">
-				<button type="button" className="dd-refresh" onClick={() => appSend({ type: "check_update" })}>
-					{chat.update === null ? t("checkingUpdate") : t("checkUpdate")}
-				</button>
-				{chat.update && !chat.update.upToDate && chat.update.latest && !inDesktopShell && (
-					<button type="button" className="dd-refresh accent" onClick={runUpdate}>
-						{t("updateNow")}
-					</button>
-				)}
-				{chat.update && !chat.update.upToDate && chat.update.latest && inDesktopShell && renderDesktopUpdater()}
-				{service && (
-					<button
-						type="button"
-						className="dd-refresh accent"
-						disabled={restarting}
-						title={t("restartServiceTip", { name: service.name })}
-						onClick={() => {
-							if (restarting) return;
-							setRestarting(true);
-							appSend({ type: "restart_service" });
-						}}
-					>
-						{restarting ? t("restartingService") : t("restartService")}
-					</button>
-				)}
-			</div>
-		</>
-	);
 
 	/** 手机端断点（见 useIsMobileTopbar）：旁置/实测按断点切（mobileAsideItems/fitInput）。 */
 	const isMobile = useIsMobileTopbar();
@@ -873,7 +491,7 @@ export function TopBar({
 			</button>
 		),
 		"host:settings": (
-			<button type="button" className="chip" data-tip={t("settingsTitle")} onClick={onOpenSettings}>
+			<button type="button" className="chip" data-tip={t("settingsTitle")} onClick={() => onOpenSettings()}>
 				<FiSettings />
 				<span className="chip-sub">{t("settings")}</span>
 			</button>
@@ -969,43 +587,23 @@ export function TopBar({
 				))}
 			</Dropdown>
 		),
-		"host:update": managed ? (
-			<span className="chip" data-tip={t("updatesManaged")}>
+		/* 更新入口（PR4）：内容（自身版本 / 全部组件更新 / 桌面壳更新）整块搬进了
+		   设置面板的「更新」页，顶栏只留一个带版本号的门牌。默认隐藏
+		   （ui-slots 里 hidden:true → 落在 ⋯ 菜单，那里同样走这个节点工厂），
+		   但节点工厂要留着：用户在「设置 → 布局」里勾回它时，这里得真画得出东西。 */
+		"host:update": (
+			<button type="button" className="chip" data-tip={t("update")} onClick={() => onOpenSettings("updates")}>
 				<FiDownload />
 				<span className="chip-sub">v{appVersion ?? chat.update?.current ?? "…"}</span>
-			</span>
-		) : (
-			<Dropdown
-				trigger={
-					<>
-						<FiDownload />
-						<span className="chip-sub">v{chat.update?.current ?? "…"}</span>
-						{chat.update && !chat.update.upToDate && (
-							<span
-								className="update-dot"
-								title={t("updateAvailable", {
-									version: chat.update.latest ?? "",
-								})}
-							/>
-						)}
-						{updatesCount > 0 && <span className="update-badge">{t("updatesAllBadge", { n: updatesCount })}</span>}
-					</>
-				}
-				tip={t("update")}
-				open={updateOpen}
-				onOpenChange={(v) => {
-					setUpdateOpen(v);
-					if (v) {
-						appSend({ type: "check_update" });
-						appSend({ type: "check_updates_all" });
-					}
-				}}
-				fit
-			>
-				<div className="dd-header">{t("update")}</div>
-				{renderUpdateBody()}
-				{renderAllUpdatesBody()}
-			</Dropdown>
+				{chat.update && !chat.update.upToDate && (
+					<span
+						className="update-dot"
+						title={t("updateAvailable", {
+							version: chat.update.latest ?? "",
+						})}
+					/>
+				)}
+			</button>
 		),
 		"host:github": (
 			<a
@@ -1024,9 +622,11 @@ export function TopBar({
 	 *  的显隐还受 PI_WEB_TABS 白名单管（服务端会拒绝对应的消息，画出来只会给一个点了没反应用的按钮）。 */
 	const TABS_GATED_IDS = new Set(["host:search", "host:tasks", "host:settings"]);
 	/** 溢出菜单里**整块搬进来**的宿主条目（菜单型：下拉/外链/自带面板）。
-	 *  其余宿主条目（history / files / new-chat / search / tasks / settings）在菜单里是一条扁平
-	 *  菜单项，由 dispatchHostOverflow 分派到本地处理器 —— 扁平的更像菜单，整块的才需要搬组件。 */
-	const OVERFLOW_AS_NODE_IDS = new Set(["host:sound", "host:language", "host:theme", "host:update", "host:browser"]);
+	 *  其余宿主条目（history / files / new-chat / search / tasks / settings）在菜单里是一条
+	 *  扁平菜单项，由 dispatchHostOverflow 分派到本地处理器 —— 扁平的更像菜单，整块的才需要搬组件。
+	 *  更新入口（host:update，PR4）虽然默认落在菜单里，但它有节点工厂（带版本号的 chip），
+	 *  所以也走「整块搬进来」这条路，不在这个名单里。 */
+	const OVERFLOW_AS_NODE_IDS = new Set(["host:sound", "host:language", "host:theme", "host:browser"]);
 	/** TABS 白名单门禁（历史口径，不扩大）：search/tasks/settings 的显隐还受白名单管，
 	 *  其余宿主入口只看 slot（各节点工厂内部自行判断，见 hostNodes）。 */
 	const isTabGatedOff = (id: string) => TABS_GATED_IDS.has(id) && !tabOn(id.slice("host:".length));
