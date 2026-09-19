@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+<!-- auto-i18n:start -->
+### i18n
+
+- 前端新增 key（4）：`settingsGeneral`、`settingsGeneralHint`、`settingsAbout`、`settingsLanguageHint`
+<!-- auto-i18n:end -->
+
 ## [0.91.0] — 2026-09-19
 
 ### Added

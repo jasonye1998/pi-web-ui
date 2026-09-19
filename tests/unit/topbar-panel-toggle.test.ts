@@ -215,7 +215,9 @@ describe("TopBar 是单一扁直流（无按种类包裹的容器、无贴边例
 		const { container } = mount(
 			"chat",
 			[hostEntry("host:new-chat"), hostEntry("host:chat"), pluginAction, pluginView],
-			[hostEntry("host:sound")],
+			// 常驻溢出名单里放一个**没被默认收走**的宿主条目（host:update）：声音/语言/主题/
+			// GitHub 默认进了设置「通用」页，不再出现在 ⋯ 里（见 ui-slots.ts 的 hidden）。
+			[hostEntry("host:update")],
 		);
 		const ctrls = [
 			...container.querySelectorAll(".topbar-flow button, .topbar-flow a[href]"),
@@ -391,23 +393,6 @@ describe("TopBar「打开项目」入口（host:open-project）", () => {
 	});
 });
 
-describe("TopBar 溢出菜单里的 GitHub 行", () => {
-	it("图标 + GitHub 文字的 chip 行（与其他行同外观），完整仓库地址在 hover 提示里", () => {
-		setAppSend(() => true);
-		const { container } = mount("chat", [hostEntry("host:chat")], [hostEntry("host:github")]);
-		act(() => container.querySelector<HTMLButtonElement>(".plugin-topbar-more > button")!.click());
-		const link = document.querySelector<HTMLAnchorElement>(".plugin-topbar-menu > a.chip.github");
-		expect(link).toBeTruthy();
-		// 图标 + 文字（svg 不贡献文本，行内读出来就是 GitHub）
-		expect(link!.querySelector("svg")).toBeTruthy();
-		expect(link!.textContent?.trim()).toBe("GitHub");
-		expect(link!.title).toContain("xing-shuyin/pi-web-ui");
-		expect(link!.getAttribute("role")).toBe("menuitem");
-		// 与其它菜单项同为菜单的直接子节点（同一套外观规则命中）
-		expect(link!.parentElement?.classList.contains("plugin-topbar-menu")).toBe(true);
-	});
-});
-
 describe("TopBar 连接状态", () => {
 	it("品牌区域不渲染连接圆点和连接状态文字", () => {
 		const { container } = mount("chat");
@@ -544,5 +529,29 @@ describe("TopBar 实测宽度溢出（放不下的自动进「⋯」）", () => 
 		const menuItems = document.querySelectorAll(".plugin-topbar-menu .plugin-topbar-menu-keep");
 		expect(menuItems.length).toBe(3);
 		expect(document.querySelectorAll(".plugin-topbar-menu .plugin-topbar-menu-keep > .tb-tab").length).toBe(2);
+	});
+
+	it("放不下时 GitHub 行以 chip 行整块进「⋯」（不是死按钮）", () => {
+		// host:github 默认收进了设置「通用」页（见 ui-slots.ts 的 hidden），已不在常驻溢出
+		// 名单里；它在 ⋯ 菜单里那条 chip 行只剩「宽度挤下来」这一条路径 —— 这里就走那条。
+		stubLayout(60, 200); // 每条 60、容器 200 → 尾部第 4 条被挤下来
+		setAppSend(() => true);
+		const { container } = mount("chat", [
+			hostEntry("host:brand"),
+			hostEntry("host:chat"),
+			hostEntry("host:new-chat"),
+			hostEntry("host:github"),
+		]);
+		expect(flowItems(container).length).toBe(3);
+		act(() => container.querySelector<HTMLButtonElement>(".plugin-topbar-more > button")!.click());
+		const link = document.querySelector<HTMLAnchorElement>(".plugin-topbar-menu > a.chip.github");
+		expect(link).toBeTruthy();
+		// 图标 + 文字（svg 不贡献文本，行内读出来就是 GitHub）
+		expect(link!.querySelector("svg")).toBeTruthy();
+		expect(link!.textContent?.trim()).toBe("GitHub");
+		expect(link!.title).toContain("xing-shuyin/pi-web-ui");
+		expect(link!.getAttribute("role")).toBe("menuitem");
+		// 与其它菜单项同为菜单的直接子节点（同一套外观规则命中）
+		expect(link!.parentElement?.classList.contains("plugin-topbar-menu")).toBe(true);
 	});
 });

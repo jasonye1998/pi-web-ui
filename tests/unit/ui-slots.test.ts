@@ -117,6 +117,15 @@ describe("buildUiSlots / 第 1 层：宿主默认", () => {
 			// order 200：尾部条目 = 实测溢出的第一顺位被收起者（见 BUILTIN_UI_ITEMS 注释）
 			"host:github",
 		]);
+		// 四个入口默认收进设置「通用」页（issue #222）：hidden 只是默认值，
+		// 布局页勾回来时写进 layout.shown，shown 覆盖 hidden（见下一个 describe）。
+		for (const id of ["host:sound", "host:language", "host:theme", "host:github"]) {
+			expect(slots["topbar.primary"].find((e) => e.id === id)?.hidden).toBe(true);
+		}
+		// host:update 不在本 PR 范围内：上游 0.91.0 已把它缺省收进「⋯」（更新界面搬进
+		// 设置面板是另一个 PR 的事）。这里只断言它仍作为 topbar.primary 条目存在，
+		// 不被本 PR 的 hidden 默认值误伤。
+		expect(slots["topbar.primary"].some((e) => e.id === "host:update")).toBe(true);
 		expect(ids(slots.bottombar)).toEqual([
 			"host:conn",
 			"host:engine",
@@ -464,6 +473,19 @@ describe("buildUiSlots / 第 4 层：用户偏好（最高）", () => {
 		const slots = build([p], { layout: { shown: ["host:settings"] } });
 		expect(slots["topbar.primary"].find((e) => e.id === "host:settings")?.hidden).toBe(false);
 		expect(slots["topbar.primary"].find((e) => e.id === "host:settings")?.arrangedBy).toEqual(["p"]);
+	});
+
+	it("shown 能覆盖宿主默认的 hidden：默认收进设置的入口能在布局页勾回顶栏", () => {
+		// 默认：四项 hidden=true（见第 1 层用例）
+		const before = build([]);
+		expect(before["topbar.primary"].find((e) => e.id === "host:sound")?.hidden).toBe(true);
+		// 布局页勾上 → 写进 shown → 回到顶栏（App 的 uiPrimary 只滤 hidden，所以这就是“能点回来”的保证）
+		const after = build([], { layout: { shown: ["host:sound"] } });
+		const entry = after["topbar.primary"].find((e) => e.id === "host:sound");
+		expect(entry?.hidden).toBe(false);
+		expect(entry?.userOverrides).toEqual(["hidden"]);
+		// 只勾一项不影响其它三项
+		expect(after["topbar.primary"].find((e) => e.id === "host:theme")?.hidden).toBe(true);
 	});
 
 	it("order 列表：列出的按列表顺序排在最前，未列出的保持原顺序", () => {

@@ -1812,6 +1812,15 @@ export function App() {
 					chat={chat}
 					terminal={terminal}
 					onSwitchToTerminal={() => setView("terminal")}
+					appearance={{
+						sound,
+						onSoundChange: setSound,
+						onSoundPreview: (kind: SoundKind) => playSound(kind, sound),
+						themes,
+						theme,
+						onThemeChange: switchTheme,
+						reloadThemes,
+					}}
 					onClose={() => setSettingsOpen(false)}
 				/>
 			)}

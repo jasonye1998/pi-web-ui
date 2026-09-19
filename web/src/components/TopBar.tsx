@@ -261,10 +261,20 @@ export function TopBar({
 	   drawing them would only offer an action that comes back refused. No list
 	   means every tab, which is the default. */
 	const tabOn = (tab: string) => !chat.tabs || tab === "chat" || chat.tabs.includes(tab);
+	/** 默认收进设置「通用」页的四个入口（见 ui-slots.ts 里 BUILTIN_UI_ITEMS 的 hidden）。
+	 *  它们不再默认出现在 ⋯ 菜单里（入口已经搬进设置）；用户在布局页勾回来时它们回到
+	 *  顶栏，上面 OVERFLOW_AS_NODE_IDS 那套整块渲染照旧生效。 */
+	const SETTINGS_HOST_ITEM_IDS = new Set(["host:sound", "host:language", "host:theme", "host:github"]);
 	/** 常驻溢出菜单的条目：「布局页里被隐藏的宿主条目 ＋ topbar.overflow 声明项」。
 	 *  品牌（host:brand）没有动作，进菜单会变成死按钮 —— 直接过滤（布局页仍可勾回来）。
+	 *  默认收进设置的四项（声音/语言/主题/GitHub）同理过滤：它们的入口已经搬到
+	 *  设置「通用」页，留在 ⋯ 里只是重复（且 ⋯ 里那几行本来就是整块搬控件、不点击生效）。
+	 *  注意**只过滤这一条路径**：宽度不够被挤下来的条目（droppedEntries）与用户手动
+	 *  隐藏的条目仍照常搬控件渲染，见 OVERFLOW_AS_NODE_IDS。
 	 *  另外还有「本断点放不下」的条目，那是实测出来的（见下面的 fitTopbar），不在这里。 */
-	const pinnedOverflowItems = [...(uiOverflow ?? [])].filter((it) => !(it.source === "host" && it.id === "host:brand"));
+	const pinnedOverflowItems = [...(uiOverflow ?? [])].filter(
+		(it) => !(it.source === "host" && (it.id === "host:brand" || SETTINGS_HOST_ITEM_IDS.has(it.id))),
+	);
 	/**
 	 * 顶栏统一渲染（方案 A：**完全扁平**，桌面与手机同一份 slot 数据）——
 	 * 所有条目都是 `.topbar-flow` 的直接子节点，**没有任何按种类包裹的容器**

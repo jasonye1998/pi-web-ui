@@ -290,6 +290,9 @@ export const BUILTIN_UI_ITEMS: BuiltinUiItem[] = [
 		group: "system",
 		align: "end",
 	},
+	// 声音/语言/主题/GitHub 默认收进设置（「通用」页），不再占顶栏：
+	// hidden 只是**默认值**，布局页勾回来会写进 layout.shown，shown 覆盖 hidden
+	// （见 buildUiSlots），所以它们随时可以在「界面布局」里放回顶栏。
 	{
 		id: "host:sound",
 		slot: "topbar.primary",

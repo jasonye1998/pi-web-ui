@@ -11,6 +11,7 @@ import {
 	FiFileText,
 	FiFolder,
 	FiGitBranch,
+	FiGithub,
 	FiHelpCircle,
 	FiKey,
 	FiMessageSquare,
@@ -31,6 +32,9 @@ import {
 import { CopyButton } from "./copy-button";
 import { PluginIcon } from "../plugin-icon";
 import { HintTip } from "./HintTip";
+import { SoundSettingsPanel } from "./SoundSettings";
+import { NotifyToggle } from "./NotifyToggle";
+import { LocaleModal } from "./LocaleModal";
 import { sortAgentPresets } from "./DshPresetBar";
 import { DSH_PERMISSION_ORDER, permDescKey, permLabelKey } from "./DshPermissionBar";
 import { PluginPage } from "./PluginPage";
@@ -62,6 +66,8 @@ import { useWideChat, saveChatWidthSettings } from "../chat-width-settings";
 import { useProjectTitle, saveTitleSettings } from "../title-settings";
 import { sanitizeWallpaperUrl, fileToWallpaperUrl, saveWallpaperSettings, useWallpaperSettings } from "../wallpaper";
 import { useT, useI18n } from "../i18n";
+import type { SoundKind, SoundSettings } from "../sounds";
+import type { ThemeInfo } from "../theme";
 import { buildUiSlots, restoreAllUi, restoreUiItem, withPluginViewItems, type UiSlotEntry } from "../ui-slots";
 import type { CatalogSyncState, PluginJobState } from "../use-chat";
 import { appSend, useAppGlobals } from "../app-globals";
@@ -154,7 +160,21 @@ interface SettingsModalProps {
 	terminal: SettingsTerminalBridge;
 	/** Switch the top-level view to the terminal (uninstall runs there). */
 	onSwitchToTerminal: () => void;
+	/** 「通用」页的外观项（声音/主题）。这些入口默认不再占顶栏（issue #222），
+	 *  改由设置页直接读写，数据源与 TopBar 收到的是同一份（App.tsx 同一处 state）。 */
+	appearance: SettingsAppearance;
 	onClose: () => void;
+}
+
+/** 「通用」页需要的外观读写句柄；字段与 TopBarProps 里的同名项一一对应。 */
+interface SettingsAppearance {
+	sound: SoundSettings;
+	onSoundChange: (settings: SoundSettings) => void;
+	onSoundPreview: (kind: SoundKind) => void;
+	themes: ThemeInfo[];
+	theme: string | null;
+	onThemeChange: (id: string | null) => void;
+	reloadThemes: () => void;
 }
 
 /** A row with an enable/disable switch (skill / extension). */
@@ -350,6 +370,7 @@ function PluginLogView({ pluginId }: { pluginId: string }) {
  *  —— 条目全局 id 本身是 `<pluginId>:<itemId>`，所以整串是 `plugin-page:<pluginId>:<itemId>`；
  *  一个插件可以贡献多页，故不用 `plugin-page:<pluginId>`（会撞车）。 */
 type SettingsTab =
+	| "general"
 	| "prompt"
 	| "prompt-history"
 	| "scheduler"
@@ -368,18 +389,21 @@ type SettingsTab =
 	| "subagent-templates"
 	| `plugin-page:${string}`;
 
-export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: SettingsModalProps) {
+export function SettingsModal({ chat, terminal, onSwitchToTerminal, appearance, onClose }: SettingsModalProps) {
 	const t = useT();
-	const { locale } = useI18n();
+	const { locale, setLocale, packs } = useI18n();
 	// {{token}} 元数据文案键是动态的（promptTok_<token>[,_desc]），用 tt 跳过字面量类型。
 	const tt = (k: string) => t(k as Parameters<typeof t>[0]);
 	const settings = chat.settings;
-	// 全局运行态（引擎 / 受管）：不再从 App 一路传进来，见 web/src/app-globals.ts。
-	const { engine, managed } = useAppGlobals();
+	// 全局运行态（引擎 / 受管 / 版本）：不再从 App 一路传进来，见 web/src/app-globals.ts。
+	// appVersion = 服务端版本，供「通用」页的关于区显示。
+	const { engine, managed, appVersion } = useAppGlobals();
 	// DSH 引擎：无 pi 扩展/技能体系与视觉桥概念 —— 隐藏对应分区/改占位说明。
 	const isDsh = engine === "dsh";
 	// 当前左侧导航选中的分组。
 	const [tab, setTab] = useState<SettingsTab>("prompt");
+	// 「通用」页里的语言包弹窗（原顶栏语言下拉的「获取更多语言」入口，随顶栏入口一起搬进来）。
+	const [localeModalOpen, setLocaleModalOpen] = useState(false);
 	// 界面插件分组内的子页签：市场 / 已安装（一次只看一坨，免得 5 大块堆在一起滚半天；默认进市场，安装一步直达）。
 	const [pluginSub, setPluginSub] = useState<"market" | "installed">("market");
 	// 内容滚动容器：切换分组后回到顶部（各组高度不同，停留旧滚动位置会像没切换）。
@@ -609,6 +633,14 @@ export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: S
 		setTab("prompt");
 	}, [tab, pluginPages]);
 
+	// 「通用」页的主题下拉：挂载那次拉取若撞上服务端重启会扑空（列表为空），
+	// 进这个页时补拉一次（同 TopBar 主题下拉打开时的做法）。
+	const themeCount = appearance.themes.length;
+	const reloadThemes = appearance.reloadThemes;
+	useEffect(() => {
+		if (tab === "general" && themeCount === 0) reloadThemes();
+	}, [tab, themeCount, reloadThemes]);
+
 	if (!settings) return null;
 
 	// 统一工具禁用名单（工具 tab 唯一写入口；旧 tab 的遗留单开关已迁入）。
@@ -657,6 +689,8 @@ export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: S
 					},
 				]),
 		{ id: "display", icon: <FiMessageSquare />, label: t("settingsMessageDisplay") },
+		// 通用（issue #222）：声音/语言/主题/GitHub 默认不再占顶栏，入口收在这里。
+		{ id: "general", icon: <FiSettings />, label: t("settingsGeneral") },
 		{ id: "quick", icon: <FiSend />, label: t("quickPhrases"), count: settings.quickPhrases.length },
 		{ id: "skills", icon: <FiCpu />, label: t("settingsSkills"), count: settings.skills.length },
 		{ id: "extensions", icon: <FiPackage />, label: t("settingsExtensions"), count: settings.extensions.length },
@@ -1823,6 +1857,84 @@ export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: S
 									enabled={settings.questionnaireEnabled}
 									onToggle={() => setPartial({ questionnaireEnabled: !settings.questionnaireEnabled })}
 								/>
+							</div>
+						)}
+
+						{/* ---- 通用（issue #222）：声音/语言/主题/GitHub 的入口不再占顶栏，收到这里 ------- */}
+						{tab === "general" && (
+							<div className="set-section">
+								<div className="set-section-title">
+									<FiSettings className="set-section-icon" />
+									{t("settingsGeneral")}
+								</div>
+								{/* 这一段就是 issue #222 的答复：想放回顶栏去哪勾。 */}
+								<div className="set-note">{t("settingsGeneralHint")}</div>
+
+								{/* 声音提示 + 桌面通知：复用顶栏声音下拉里那两个面板（同一份 settings）。 */}
+								<div className="set-general-sound">
+									<SoundSettingsPanel
+										settings={appearance.sound}
+										onChange={appearance.onSoundChange}
+										onPreview={appearance.onSoundPreview}
+									/>
+									<NotifyToggle />
+								</div>
+
+								<FieldRow label={t("language")} tip={t("settingsLanguageHint")} htmlFor="set-general-locale">
+									<select
+										id="set-general-locale"
+										className="set-select"
+										value={locale}
+										onChange={(e) => setLocale(e.target.value)}
+									>
+										{packs.map((l) => (
+											<option key={l.code} value={l.code}>
+												{l.nativeName}
+											</option>
+										))}
+									</select>
+								</FieldRow>
+								<div className="set-general-actions">
+									<button type="button" className="set-btn-mini" onClick={() => setLocaleModalOpen(true)}>
+										<FiDownload />
+										{t("localeGetMore")}
+									</button>
+								</div>
+
+								<FieldRow label={t("theme")} htmlFor="set-general-theme">
+									<select
+										id="set-general-theme"
+										className="set-select"
+										value={appearance.theme ?? ""}
+										onChange={(e) => appearance.onThemeChange(e.target.value || null)}
+									>
+										<option value="">{t("themeDefault")}</option>
+										{appearance.themes.map((th) => (
+											<option key={th.id} value={th.id}>
+												{locale === "zh" ? th.name : (th.nameEn ?? th.name)}
+											</option>
+										))}
+									</select>
+								</FieldRow>
+
+								<div className="set-row">
+									<div className="set-row-info">
+										<div className="set-row-name">{t("settingsAbout")}</div>
+										<div className="set-row-desc">
+											{t("currentVersion")} v{appVersion ?? "…"}
+										</div>
+									</div>
+									<a
+										className="set-general-link"
+										href="https://github.com/xing-shuyin/pi-web-ui"
+										target="_blank"
+										rel="noreferrer noopener"
+										title={t("githubRepo")}
+									>
+										<FiGithub />
+										GitHub
+									</a>
+								</div>
 							</div>
 						)}
 
@@ -3739,6 +3851,15 @@ export function SettingsModal({ chat, terminal, onSwitchToTerminal, onClose }: S
 					</button>
 				</div>
 			</div>
+			{/* 语言包弹窗：它自己的 .modal-backdrop 点击后会冒泡到上面那层，把设置一起关掉，
+			    所以套一层只做 stopPropagation 的壳。壳用 display:contents —— 不生成盒子，
+			    事件仍走它（display:contents 的元素在事件路径里），但内层遮罩（position:fixed）
+			    不会被挤成一个参与 flex 布局的子项，设置弹窗的居中不受影响。 */}
+			{localeModalOpen && (
+				<div className="settings-sub" onClick={(e) => e.stopPropagation()}>
+					<LocaleModal onClose={() => setLocaleModalOpen(false)} />
+				</div>
+			)}
 		</div>
 	);
 }

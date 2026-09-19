@@ -1421,6 +1421,13 @@ export const zh = {
 	localeListFailed: "获取语言包列表失败：{error}",
 	localeRemoveHint: "移除后随时可重新下载",
 
+	/* 设置：通用页（issue #222）—— 声音/语言/主题/GitHub 的入口默认不占顶栏 */
+	settingsGeneral: "通用",
+	settingsGeneralHint:
+		"声音、语言、主题、GitHub 入口默认收进了这里，顶栏不再显示；想让它们回到顶栏，去「界面布局」把对应条目勾上即可。",
+	settingsAbout: "关于",
+	settingsLanguageHint: "缺失的语言包可随时下载——见下方「获取更多语言」。",
+
 	/* 聊天背景图（壁纸，issue #100） */
 	wallpaperTitle: "聊天背景图",
 	wallpaperDesc:
@@ -2913,6 +2920,13 @@ const en: Record<keyof typeof zh, string> = {
 	localeInstallFailed: "Download failed: {error}",
 	localeListFailed: "Couldn't load language packs: {error}",
 	localeRemoveHint: "You can re-download it anytime",
+
+	/* Settings: General page (issue #222) — sound/language/theme/GitHub moved off the top bar */
+	settingsGeneral: "General",
+	settingsGeneralHint:
+		"Sound, language, theme and GitHub now live here instead of the top bar. To put them back, tick the matching entries on the Interface layout page.",
+	settingsAbout: "About",
+	settingsLanguageHint: "Missing packs can be downloaded on demand — see Get more languages below.",
 
 	/* Chat wallpaper (issue #100) */
 	wallpaperTitle: "Chat wallpaper",

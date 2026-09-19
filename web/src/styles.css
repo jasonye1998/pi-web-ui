@@ -10888,6 +10888,48 @@ button.source-default-toggle {
 	color: var(--text-dim);
 	margin: 2px 0 8px;
 }
+/* 设置弹窗内嵌的子弹窗壳（如语言包弹窗）：只做事件阻断，不生成盒子 ——
+   设置弹窗仍是 .modal-backdrop 唯一的 flex 子项，居中不受影响（display:contents 的元素
+   仍在 DOM 里，React 事件照常冒泡到它，onClick 的 stopPropagation 生效）。
+   子弹窗的 position:fixed 遮罩不受影响：祖先的 backdrop-filter 把包含块改成它的 padding box，
+   而该元素无边框、padding box 就是整个视口。 */
+.settings-sub {
+	display: contents;
+}
+/* 通用页（issue #222）：声音/桌面通知面板内嵌在卡片里，不能再用下拉菜单的固定宽 300px */
+.settings-modal .set-general-sound {
+	background: var(--bg-elev2);
+	border-radius: 10px;
+	padding: 4px 10px 2px;
+}
+.settings-modal .set-general-sound .sound-menu {
+	width: 100%;
+}
+.settings-modal .set-general-actions {
+	display: flex;
+	justify-content: flex-end;
+	padding: 0 2px 4px;
+}
+/* 通用页的 GitHub 链接：形状同 .set-uninstall，但 hover 用强调色（不是删除红）*/
+.settings-modal .set-general-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	flex: none;
+	padding: 3px 8px;
+	font-size: 11px;
+	border-radius: 6px;
+	border: 1px solid var(--border);
+	color: var(--text-dim);
+	text-decoration: none;
+	transition:
+		color 0.15s,
+		border-color 0.15s;
+}
+.settings-modal .set-general-link:hover {
+	color: var(--accent);
+	border-color: var(--accent);
+}
 /* 小提示词框按 rows 走，140px 保底只留给组合模板 */
 .settings-modal textarea.set-prompt-input {
 	min-height: 110px;
