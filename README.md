@@ -306,8 +306,20 @@ random free loopback port and opens a window pointed at it (see
 fight over port `8787`, separate data directory, both can run side by side.
 
 **Nothing is code signed yet**: on Windows SmartScreen shows an “unknown
-publisher” prompt, and on macOS you have to right-click → **Open** the app the
-first time (Gatekeeper is stricter than SmartScreen) — see the
+publisher” prompt. macOS needs its own note: the bundle is only ad-hoc signed
+(no Developer ID, no notarization) _and_ the download carries a
+`com.apple.quarantine` attribute, so Gatekeeper reports it as **“damaged and
+can't be opened”** rather than “unidentified developer” — which means the usual
+right-click → **Open** does **not** get you past it. Clear the attribute once
+instead:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/pi-web-ui-desktop.app
+```
+
+This only affects manual installs from the `.dmg`. The in-app updater pulls the
+`.zip` through `electron-updater`, whose Squirrel helper clears the attribute
+itself (`clearQuarantineForDirectory:`), so it is unaffected — see the
 [code signing policy](#-code-signing-policy). Build it locally with
 `npm run desktop:dist`.
 

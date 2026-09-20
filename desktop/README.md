@@ -63,7 +63,21 @@ CI 负责出包并挂到 GitHub Release：`.github/workflows/desktop-release.yml
 手动空跑（只出 workflow artifact、不动 Release 资产）：Actions → Desktop installer → Run workflow。
 
 现在三平台产物都**未签名**：Windows 首启有 SmartScreen「未知发布者」提示；
-macOS 的 Gatekeeper 更硬，首次要右键 → 打开；Linux AppImage 无签名概念。功能都不受影响。
+Linux AppImage 无签名概念。功能都不受影响，但 **macOS 要单独说**：
+
+mac 产物是 **ad-hoc 签名**（`Signature=adhoc`，bundle 里没有 `_CodeSignature/`，
+既无 Developer ID 也无公证），而浏览器下载的 dmg 会给 bundle 打上
+`com.apple.quarantine`。两者叠加时 Gatekeeper 判的是**「已损坏，无法打开。你应该将它
+移到废纸篓。」**，而**不是**「身份不明的开发者」——后者才有右键 → 打开这条路。
+所以 mac 首次安装请直接清隔离属性（一次性，`-r` 覆盖 bundle 内的 Helper）：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/pi-web-ui-desktop.app
+```
+
+验证：`open -a /Applications/pi-web-ui-desktop.app` 从 `error -128`（静默失败）
+变为正常启动。App 内自动更新不受影响——它走 zip，Squirrel 的 ShipIt 会自己清隔离属性
+（`clearQuarantineForDirectory:`）。
 
 ## 签名
 
@@ -98,7 +112,7 @@ macOS 的 Gatekeeper/公证 SignPath 帮不上，只能走 Apple Developer ID。
   （feed 不再是 GH_TOKEN 下的意外产物）；mac target 必须是 `[dmg, zip]`
   （Squirrel.Mac 只吃 zip，只有 dmg 接上 updater 也更新不了）；NSIS 的
   `artifactName` 不能带空格（GitHub 会把 asset 名里的空格转成点，feed 随即 404）。
-- 未签名现状：Windows/Linux 未签名也能原地更新；macOS 首次安装仍要右键→打开。
+- 未签名现状：Windows/Linux 未签名也能原地更新；macOS 首次安装要先清 quarantine（见上）。
 
 ## 下一步（不在本骨架里）
 
