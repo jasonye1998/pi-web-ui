@@ -317,9 +317,11 @@ instead:
 xattr -dr com.apple.quarantine /Applications/pi-web-ui-desktop.app
 ```
 
-This only affects manual installs from the `.dmg`. The in-app updater pulls the
-`.zip` through `electron-updater`, whose Squirrel helper clears the attribute
-itself (`clearQuarantineForDirectory:`), so it is unaffected — see the
+This affects **both** manual install paths — the `.dmg` you drag the app out of,
+and the `.zip` you unpack yourself: the quarantine attribute is inherited by
+the extracted `.app` either way. The in-app updater is unaffected, because it
+runs the `.zip` through `electron-updater`, whose Squirrel helper clears the
+attribute itself (`clearQuarantineForDirectory:`) — see the
 [code signing policy](#-code-signing-policy). Build it locally with
 `npm run desktop:dist`.
 

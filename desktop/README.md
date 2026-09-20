@@ -76,7 +76,11 @@ xattr -dr com.apple.quarantine /Applications/pi-web-ui-desktop.app
 ```
 
 验证：`open -a /Applications/pi-web-ui-desktop.app` 从 `error -128`（静默失败）
-变为正常启动。App 内自动更新不受影响——它走 zip，Squirrel 的 ShipIt 会自己清隔离属性
+变为正常启动。
+
+**dmg 与 zip 两种手动安装路径都一样**：隔离属性会被解出来的 `.app` 继承（实测 zip 文件与
+解出的 app 上 `xattr -p com.apple.quarantine` 取到**相同的 UUID**，`ditto`/`unzip` 均如此）。
+App 内自动更新不受影响——它走 zip，Squirrel 的 ShipIt 会自己清隔离属性
 （`clearQuarantineForDirectory:`）。
 
 ## 签名
